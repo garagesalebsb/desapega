@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Desapego Brasília</title>
+  <meta property="og:title" content="Desapego Brasília">
+  <meta property="og:description" content="Vendas de garagem, bazares e vendas de mudança perto de você em Brasília.">
+  <script>
+    // Links de venda (/v/<id>/) que ainda não ganharam página de pré-visualização
+    // caem aqui e são levados para a página da venda dentro do app.
+    (function () {
+      var path = location.pathname;
+      var m = path.match(/^(.*\/)v\/([0-9a-f-]{36})\/?$/i);
+      if (m) location.replace(m[1] + '#/venda/' + m[2]);
+    })();
+  </script>
+  <style>
+    body { font-family: system-ui, sans-serif; text-align: center; padding: 60px 16px; background: #f7f5f1; color: #1d2321; }
+    a { color: #12796b; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Página não encontrada</h1>
+  <p><a href="/">Ir para o início</a></p>
+</body>
+</html>
