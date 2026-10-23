@@ -248,6 +248,12 @@ legend { font-weight: 600; font-size: .92rem; margin-bottom: 6px; }
 .or span { position: relative; background: var(--bg); padding: 0 10px; }
 .auth form { display: flex; flex-direction: column; gap: 10px; }
 
+.doc-page { padding-bottom: 0; }
+.doc { max-width: 720px; }
+.doc ul { padding-left: 20px; }
+.doc li { margin: 4px 0; }
+.legal { text-align: center; font-size: .82rem; color: var(--muted); }
+
 /* ---------- Toast, modal, instalação ---------- */
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 16px + env(safe-area-inset-bottom));

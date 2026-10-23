@@ -4,7 +4,7 @@
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
 const OUT = '_site';
-const STATIC = ['index.html', '404.html', 'manifest.webmanifest', 'sw.js', 'css', 'js', 'icons'];
+const STATIC = ['index.html', '404.html', 'privacidade.html', 'termos.html','manifest.webmanifest', 'sw.js', 'css', 'js', 'icons'];
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT);

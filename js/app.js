@@ -1025,6 +1025,7 @@ async function viewLogin(ctx) {
         <label>Seu e-mail<input type="email" name="email" required autocomplete="email" placeholder="voce@exemplo.com"></label>
         <button class="btn primary big">Receber link de acesso</button>
       </form>
+      <p class="legal">Ao entrar, você concorda com os <a href="termos.html">Termos de Uso</a> e a <a href="privacidade.html">Política de Privacidade</a>.</p>
     </div>`;
 
   document.getElementById('google').onclick = async () => {
