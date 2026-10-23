@@ -2,6 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { CONFIG } from './config.js';
 import { REGIONS, DF_CENTER, regionByName, SALE_TYPES, CATEGORIES, REPORT_REASONS } from './data.js';
 import { maybeSuggestInstall } from './install.js';
+import { stripMetadata } from './metadata.js';
 import { PIX_TYPES, guessPixType, normalizePixKey, formatPixKey, pixPayload, qrSvg } from './pix.js';
 
 const $view = document.getElementById('view');
@@ -1047,7 +1048,8 @@ async function uploadPhoto(file) {
     // O navegador não conseguiu ler/reduzir a foto: envia o original se o formato for aceito.
     if (!UPLOAD_TYPES[file.type]) throw new Error(`Formato de foto não suportado (${file.type || 'desconhecido'}). Use JPG ou PNG.`);
     if (file.size > 5 * 1024 * 1024) throw new Error('A foto é muito grande (máximo 5 MB).');
-    blob = file;
+    // Sem a redução, a foto manteria os metadados da câmera (inclusive o GPS): remove antes de enviar.
+    blob = await stripMetadata(file);
   }
   const type = blob.type || 'image/jpeg';
   const path = `${state.user.id}/${crypto.randomUUID()}.${UPLOAD_TYPES[type] || 'jpg'}`;
