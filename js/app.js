@@ -764,15 +764,25 @@ async function resizeImage(file, max = 1280, quality = 0.8) {
 
 const UPLOAD_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
+const isHeic = (file) => /hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+
+// Fotos HEIC/HEIF (iPhone, Samsung) que o navegador não abre: converte para JPG no aparelho.
+async function heicToJpeg(file) {
+  const { default: heic2any } = await import('https://cdn.jsdelivr.net/npm/heic2any@0.0.4/+esm');
+  const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.85 });
+  return new File([Array.isArray(out) ? out[0] : out], 'foto.jpg', { type: 'image/jpeg' });
+}
+
 async function uploadPhoto(file) {
   let blob = await resizeImage(file).catch(() => null);
+  if (!blob && isHeic(file)) {
+    const jpeg = await heicToJpeg(file).catch(() => null);
+    if (!jpeg) throw new Error('Não foi possível converter a foto HEIC. No iPhone, vá em Ajustes > Câmera > Formatos e escolha "Mais Compatível".');
+    blob = (await resizeImage(jpeg).catch(() => null)) || jpeg;
+  }
   if (!blob) {
     // O navegador não conseguiu ler/reduzir a foto: envia o original se o formato for aceito.
-    if (!UPLOAD_TYPES[file.type]) {
-      throw new Error(/hei[cf]/i.test(file.type || file.name)
-        ? 'Fotos HEIC não são aceitas por este navegador. No iPhone, vá em Ajustes > Câmera > Formatos e escolha "Mais Compatível", ou envie um print da foto.'
-        : 'Formato de foto não suportado. Use JPG ou PNG.');
-    }
+    if (!UPLOAD_TYPES[file.type]) throw new Error(`Formato de foto não suportado (${file.type || 'desconhecido'}). Use JPG ou PNG.`);
     if (file.size > 5 * 1024 * 1024) throw new Error('A foto é muito grande (máximo 5 MB).');
     blob = file;
   }

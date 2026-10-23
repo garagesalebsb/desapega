@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir rápido e funcionar com internet ruim.
 // Arquivos do app: rede primeiro, cache como reserva. Dados do Supabase: sempre da rede.
-const CACHE = 'desapego-v1';
+const CACHE = 'desapego-v2';
 const SHELL = [
   './',
   'index.html',
@@ -45,8 +45,9 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
+  // "no-cache" revalida com o servidor: uma versão nova publicada chega na hora.
   e.respondWith(
-    fetch(req)
+    fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
