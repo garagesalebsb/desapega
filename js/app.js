@@ -628,10 +628,7 @@ function setupItemForm(sale, renderItems, sortItems) {
 
   fileInput.addEventListener('change', () => {
     const f = fileInput.files[0];
-    if (!f) return;
-    preview.src = URL.createObjectURL(f);
-    preview.hidden = false;
-    ph.hidden = true;
+    if (f) previewPhoto(f, preview, ph);
   });
 
   form.addEventListener('submit', async (e) => {
@@ -773,10 +770,39 @@ async function heicToJpeg(file) {
   return new File([Array.isArray(out) ? out[0] : out], 'foto.jpg', { type: 'image/jpeg' });
 }
 
+// Conversões já feitas na pré-visualização, reaproveitadas no envio.
+const converted = new WeakMap();
+function convertHeic(file) {
+  if (!converted.has(file)) converted.set(file, heicToJpeg(file).catch(() => null));
+  return converted.get(file);
+}
+
+// Mostra a foto escolhida no campo; se o navegador não abrir (HEIC), converte e mostra.
+function previewPhoto(file, img, ph) {
+  img.hidden = false;
+  ph.hidden = true;
+  img.onerror = async () => {
+    img.onerror = null;
+    if (!isHeic(file)) return;
+    img.hidden = true;
+    ph.hidden = false;
+    const label = ph.lastChild;
+    const original = label.textContent;
+    label.textContent = 'Preparando foto…';
+    const jpeg = await convertHeic(file);
+    label.textContent = original;
+    if (!jpeg) return toast('Não foi possível abrir esta foto. Tente outra.', 'error');
+    img.src = URL.createObjectURL(jpeg);
+    img.hidden = false;
+    ph.hidden = true;
+  };
+  img.src = URL.createObjectURL(file);
+}
+
 async function uploadPhoto(file) {
   let blob = await resizeImage(file).catch(() => null);
   if (!blob && isHeic(file)) {
-    const jpeg = await heicToJpeg(file).catch(() => null);
+    const jpeg = await convertHeic(file);
     if (!jpeg) throw new Error('Não foi possível converter a foto HEIC. No iPhone, vá em Ajustes > Câmera > Formatos e escolha "Mais Compatível".');
     blob = (await resizeImage(jpeg).catch(() => null)) || jpeg;
   }
@@ -938,11 +964,7 @@ async function viewSaleForm(ctx, id) {
   const coverInput = form.cover;
   coverInput.addEventListener('change', () => {
     const f = coverInput.files[0];
-    if (!f) return;
-    const img = form.querySelector('.photo-pick img');
-    img.src = URL.createObjectURL(f);
-    img.hidden = false;
-    form.querySelector('.photo-pick .ph').hidden = true;
+    if (f) previewPhoto(f, form.querySelector('.photo-pick img'), form.querySelector('.photo-pick .ph'));
   });
 
   form.addEventListener('submit', async (e) => {
