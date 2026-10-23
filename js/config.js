@@ -4,4 +4,6 @@ export const CONFIG = {
   SUPABASE_URL: 'https://jadxgfwguzcbmuvjutvq.supabase.co',
   SUPABASE_ANON_KEY: 'sb_publishable_GAcisaQRatOCvvcf6-FxQQ_tVfGY7dW',
   APP_NAME: 'Desapego Brasília',
+  // Monitoramento de erros (opcional): cole aqui o DSN do projeto no Sentry (sentry.io).
+  SENTRY_DSN: '',
 };

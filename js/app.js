@@ -3,6 +3,7 @@ import { CONFIG } from './config.js';
 import { REGIONS, DF_CENTER, regionByName, SALE_TYPES, CATEGORIES, REPORT_REASONS } from './data.js';
 import { maybeSuggestInstall } from './install.js';
 import { stripMetadata } from './metadata.js';
+import { initMonitoring, reportError } from './monitoring.js';
 import { PIX_TYPES, guessPixType, normalizePixKey, formatPixKey, pixPayload, qrSvg } from './pix.js';
 
 const $view = document.getElementById('view');
@@ -85,7 +86,9 @@ function parsePrice(s) {
 }
 
 let toastTimer;
-function toast(msg, kind = '') {
+// Com "err", a falha também vai para o monitoramento (erros de digitação do usuário não passam err).
+function toast(msg, kind = '', err = null) {
+  if (err && !isNetworkError(err)) reportError(err, (location.hash.split('?')[0] || '#/').replace(/[0-9a-f-]{36}/g, ':id'));
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.className = `toast ${kind}`;
@@ -138,8 +141,14 @@ function makeMap(el, center, zoom, opts = {}) {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap',
   }).addTo(map);
-  cleanup.push(() => map.remove());
-  setTimeout(() => map.invalidateSize(), 50);
+  // Ao trocar de tela: cancela o ajuste pendente e para animações antes de remover o mapa
+  // (remover no meio de uma animação gera erro no Leaflet).
+  const resize = setTimeout(() => map.invalidateSize({ animate: false }), 50);
+  cleanup.push(() => {
+    clearTimeout(resize);
+    map.stop();
+    map.remove();
+  });
   return map;
 }
 const pinIcon = (type) =>
@@ -202,6 +211,12 @@ const routes = [
   [/^\/perfil$/, viewProfile],
 ];
 
+// Saindo da página, as buscas em andamento são interrompidas: isso não é erro do app.
+let leaving = false;
+addEventListener('pagehide', () => (leaving = true));
+addEventListener('pageshow', () => (leaving = false));
+const isNetworkError = (e) => /Failed to fetch|Load failed|NetworkError|network/i.test(`${e?.message} ${e?.details}`);
+
 let renderId = 0;
 async function render() {
   cleanup.forEach((fn) => fn());
@@ -219,8 +234,20 @@ async function render() {
     try {
       await view(ctx, ...m.slice(1));
     } catch (e) {
+      if (leaving || !ctx.alive()) return;
+      if (isNetworkError(e)) {
+        $view.innerHTML = `
+          <div class="empty">
+            <h2>Sem conexão</h2>
+            <p>Não conseguimos carregar agora. Confira sua internet e tente de novo.</p>
+            <button class="btn primary" id="retry">Tentar de novo</button>
+          </div>`;
+        document.getElementById('retry').onclick = render;
+        return;
+      }
       console.error(e);
-      if (ctx.alive()) $view.innerHTML = `<div class="empty"><h2>Algo deu errado</h2><p>${esc(e.message)}</p><a class="btn" href="#/">Voltar ao início</a></div>`;
+      reportError(e, `tela ${path.replace(/[0-9a-f-]{36}/g, ':id')}`);
+      $view.innerHTML = `<div class="empty"><h2>Algo deu errado</h2><p>${esc(e.message)}</p><a class="btn" href="#/">Voltar ao início</a></div>`;
     }
     return;
   }
@@ -341,8 +368,8 @@ async function viewHome(ctx) {
       .bindPopup(`<a href="#/venda/${s.id}"><strong>${esc(s.title)}</strong></a><br>${fmtWhen(s)}`);
     bounds.push([s.lat, s.lng]);
   }
-  if (bounds.length > 1) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
-  else if (bounds.length === 1) map.setView(bounds[0], 15);
+  if (bounds.length > 1) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15, animate: false });
+  else if (bounds.length === 1) map.setView(bounds[0], 15, { animate: false });
 
   const list = document.getElementById('home-list');
   if (!sales.length) {
@@ -593,7 +620,7 @@ async function viewSale(ctx, id) {
   const openWhatsApp = async (text) => {
     if (!requireLogin(`/venda/${sale.id}`, 'Entre para falar com o vendedor.')) return;
     const { data: phone, error } = await sb.rpc('get_sale_whatsapp', { p_sale: sale.id });
-    if (error) return toast(contactError(error), 'error');
+    if (error) return toast(contactError(error), 'error', error);
     if (!phone) return toast('O vendedor não informou um WhatsApp.', 'error');
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
   };
@@ -612,7 +639,7 @@ async function viewSale(ctx, id) {
     } else if (act === 'delete-item') {
       if (!confirm(`Remover "${item.title}"?`)) return;
       const { error } = await sb.from('items').delete().eq('id', item.id);
-      if (error) return toast(error.message, 'error');
+      if (error) return toast(error.message, 'error', error);
       removeStoredPhotos(itemPhotos(item).filter((u) => u !== sale.cover_url));
       sale.items = sale.items.filter((i) => i !== item);
       renderItems();
@@ -648,7 +675,7 @@ async function viewSale(ctx, id) {
         item.status = prev;
         sortItems();
         renderItems();
-        toast('Não foi possível atualizar o item.', 'error');
+        toast('Não foi possível atualizar o item.', 'error', error);
       }
     } else if (act === 'view-item') {
       openItemViewer(sale, item, { isOwner, ended, hasPix, onAction: (a) => handleItemAction(a, item) });
@@ -657,7 +684,7 @@ async function viewSale(ctx, id) {
     } else if (act === 'delete-sale') {
       if (!confirm('Excluir esta venda e todos os itens? Isso não pode ser desfeito.')) return;
       const { error } = await sb.from('sales').delete().eq('id', sale.id);
-      if (error) return toast(error.message, 'error');
+      if (error) return toast(error.message, 'error', error);
       removeStoredPhotos([sale.cover_url, ...sale.items.flatMap(itemPhotos)]);
       toast('Venda excluída.');
       navigate('/minhas');
@@ -726,7 +753,7 @@ function setupItemForm(sale, renderItems, sortItems) {
       form.title.focus();
       toast('Item salvo!');
     } catch (err) {
-      toast(err.message || 'Erro ao salvar o item.', 'error');
+      toast(err.message || 'Erro ao salvar o item.', 'error', err);
     } finally {
       btn.disabled = false;
       btn.textContent = 'Salvar e adicionar outro';
@@ -863,7 +890,7 @@ function openItemEditor(sale, item, done) {
       done();
       toast('Item atualizado.');
     } catch (err) {
-      toast(err.message || 'Erro ao salvar o item.', 'error');
+      toast(err.message || 'Erro ao salvar o item.', 'error', err);
       btn.disabled = false;
       btn.textContent = 'Salvar';
     }
@@ -876,7 +903,7 @@ const contactError = (error) =>
 
 async function openPix(sale, item, openWhatsApp) {
   const { data, error } = await sb.rpc('get_sale_pix', { p_sale: sale.id });
-  if (error) return toast(contactError(error), 'error');
+  if (error) return toast(contactError(error), 'error', error);
   const pix = data?.[0];
   if (!pix) return toast('O vendedor não informou uma chave Pix.', 'error');
   const receiver = pix.pix_name || sale.owner?.name || '';
@@ -968,7 +995,7 @@ function openReport(target, what) {
     e.preventDefault();
     const f = e.target;
     const { error } = await sb.from('reports').insert({ ...target, reason: f.reason.value, details: f.details.value.trim() || null });
-    if (error) return toast(error.message, 'error');
+    if (error) return toast(error.message, 'error', error);
     close();
     toast('Denúncia enviada. Obrigado por ajudar a manter o site seguro.');
   });
@@ -1245,11 +1272,11 @@ async function viewSaleForm(ctx, id) {
           coverError = err;
         }
       }
-      if (coverError) toast(`Venda salva, mas a foto de capa falhou. ${coverError.message}`, 'error');
+      if (coverError) toast(`Venda salva, mas a foto de capa falhou. ${coverError.message}`, 'error', coverError);
       else toast(sale ? 'Venda atualizada.' : 'Venda publicada!');
       navigate(`/venda/${res.data.id}${sale ? '' : '?novo=1'}`);
     } catch (err) {
-      toast(err.message || 'Erro ao salvar.', 'error');
+      toast(err.message || 'Erro ao salvar.', 'error', err);
       btn.disabled = false;
       btn.textContent = sale ? 'Salvar alterações' : 'Publicar e cadastrar itens';
     }
@@ -1325,7 +1352,7 @@ async function viewLogin(ctx) {
 
   document.getElementById('google').onclick = async () => {
     const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: BASE_URL } });
-    if (error) toast(error.message, 'error');
+    if (error) toast(error.message, 'error', error);
   };
   document.getElementById('email-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1334,7 +1361,7 @@ async function viewLogin(ctx) {
     btn.disabled = true;
     const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: BASE_URL } });
     btn.disabled = false;
-    if (error) return toast(error.message, 'error');
+    if (error) return toast(error.message, 'error', error);
     e.target.innerHTML = `<div class="notice"><strong>Confira seu e-mail.</strong><p>Enviamos um link de acesso para ${esc(email)}. Abra-o neste mesmo aparelho e navegador.</p></div>`;
   });
 }
@@ -1423,17 +1450,17 @@ async function viewProfile(ctx) {
     const pix_name = pix_key ? form.pix_name.value.trim() || (form.name.value.trim().slice(0, 25)) : null;
 
     const p1 = await sb.from('profiles').update({ name: form.name.value.trim() }).eq('id', state.user.id);
-    if (p1.error) return toast(p1.error.message, 'error');
+    if (p1.error) return toast(p1.error.message, 'error', p1.error);
     if (pix_key !== (c.pix_key || null) || pix_name !== (c.pix_name || null)) {
       const px = await sb.from('contacts').update({ pix_key, pix_name }).eq('user_id', state.user.id);
-      if (px.error) return toast(`Erro ao salvar o Pix: ${px.error.message}`, 'error');
+      if (px.error) return toast(`Erro ao salvar o Pix: ${px.error.message}`, 'error', px.error);
     }
 
     const changed = phone !== (c.whatsapp || null);
     const needsSms = state.requireVerification && phone && !(changed === false && c.phone_verified);
     if (needsSms) {
       const { error } = await sb.auth.updateUser({ phone: '+' + phone });
-      if (error) return toast(error.message, 'error');
+      if (error) return toast(error.message, 'error', error);
       otpBox.innerHTML = `
         <div class="notice">
           <label>Digite o código enviado por SMS para ${fmtPhone(phone)}
@@ -1452,7 +1479,7 @@ async function viewProfile(ctx) {
     }
     if (changed) {
       const p2 = await sb.from('contacts').update({ whatsapp: phone }).eq('user_id', state.user.id);
-      if (p2.error) return toast(p2.error.message, 'error');
+      if (p2.error) return toast(p2.error.message, 'error', p2.error);
     }
     toast('Perfil salvo.');
     finish();
@@ -1487,7 +1514,7 @@ async function viewProfile(ctx) {
       toast('Sua conta foi excluída.');
       navigate('/');
     } catch (err) {
-      toast(`Não foi possível excluir a conta: ${err.message}`, 'error');
+      toast(`Não foi possível excluir a conta: ${err.message}`, 'error', err);
       btn.disabled = false;
       btn.textContent = 'Excluir minha conta para sempre';
     }
@@ -1498,6 +1525,7 @@ async function viewProfile(ctx) {
 // Inicialização
 // ---------------------------------------------------------------------
 async function boot() {
+  initMonitoring(CONFIG.SENTRY_DSN);
   document.getElementById('app-name').textContent = CONFIG.APP_NAME;
   if (!configured) {
     $view.innerHTML = `

@@ -3,6 +3,7 @@ name: Publicar no GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
   schedule:
     # Atualiza as pré-visualizações de links das vendas novas a cada 30 minutos
@@ -13,13 +14,37 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
-  deploy:
+  # Mudança de código: testa no Android, no iPhone, as regras do banco e o código do Pix/fotos.
+  test:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npx playwright test
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorio-dos-testes
+          path: playwright-report
+          retention-days: 14
+
+  # Publica só se os testes passaram (ou se foi só atualização das prévias, sem mudança de código).
+  deploy:
+    needs: test
+    if: >-
+      always() && github.event_name != 'pull_request' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: true
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
