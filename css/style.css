@@ -280,6 +280,7 @@ legend { font-weight: 600; font-size: .92rem; margin-bottom: 6px; }
 .pix-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--surface); }
 .pix-box legend { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
 
+.warn-box { background: color-mix(in srgb, var(--mudanca) 14%, var(--surface)); }
 .danger-zone { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; background: var(--surface); }
 .danger-zone summary { cursor: pointer; color: var(--danger); font-weight: 600; }
 .danger-zone[open] { display: flex; flex-direction: column; gap: 10px; }

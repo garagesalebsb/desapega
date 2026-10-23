@@ -592,7 +592,8 @@ async function viewSale(ctx, id) {
   const openWhatsApp = async (text) => {
     if (!requireLogin(`/venda/${sale.id}`, 'Entre para falar com o vendedor.')) return;
     const { data: phone, error } = await sb.rpc('get_sale_whatsapp', { p_sale: sale.id });
-    if (error || !phone) return toast('Não foi possível obter o contato do vendedor.', 'error');
+    if (error) return toast(contactError(error), 'error');
+    if (!phone) return toast('O vendedor não informou um WhatsApp.', 'error');
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
   };
 
@@ -868,10 +869,15 @@ function openItemEditor(sale, item, done) {
   });
 }
 
+// O banco limita quantos contatos cada conta pode ver por hora (contra coleta em massa).
+const contactError = (error) =>
+  /limite/i.test(error.message) ? error.message : 'Não foi possível obter o contato do vendedor. Tente de novo.';
+
 async function openPix(sale, item, openWhatsApp) {
   const { data, error } = await sb.rpc('get_sale_pix', { p_sale: sale.id });
+  if (error) return toast(contactError(error), 'error');
   const pix = data?.[0];
-  if (error || !pix) return toast('O vendedor não informou uma chave Pix.', 'error');
+  if (!pix) return toast('O vendedor não informou uma chave Pix.', 'error');
   const receiver = pix.pix_name || sale.owner?.name || '';
   const code = pixPayload({ key: pix.pix_key, name: receiver, amount: Number(item.price) });
   const { el, close } = openModal(`
@@ -1359,12 +1365,16 @@ async function viewProfile(ctx) {
         <div class="row">
           <label>Tipo de chave
             <select name="pix_type">
-              ${Object.entries(PIX_TYPES).map(([k, v]) => `<option value="${k}" ${k === guessPixType(c.pix_key) ? 'selected' : ''}>${v}</option>`).join('')}
+              ${Object.entries(PIX_TYPES).map(([k, v]) => `<option value="${k}" ${k === (c.pix_key ? guessPixType(c.pix_key) : 'aleatoria') ? 'selected' : ''}>${v}</option>`).join('')}
             </select>
           </label>
           <label>Chave Pix
             <input name="pix_key" value="${esc(c.pix_key ? formatPixKey(c.pix_key) : '')}" autocomplete="off">
           </label>
+        </div>
+        <p class="hint">Recomendamos a <strong>chave aleatória</strong>: crie uma no app do seu banco, em Pix &gt; Minhas chaves.</p>
+        <div class="notice warn-box" id="pix-cpf-warning" ${guessPixType(c.pix_key) === 'cpf' && c.pix_key ? '' : 'hidden'}>
+          <p><strong>Atenção:</strong> com chave CPF ou CNPJ, quem for pagar vê o seu documento. Prefira a chave aleatória.</p>
         </div>
         <label>Nome do recebedor (como aparece no banco)
           <input name="pix_name" maxlength="25" value="${esc(c.pix_name || '')}" placeholder="${esc((state.profile?.name || '').slice(0, 25))}">
@@ -1387,6 +1397,9 @@ async function viewProfile(ctx) {
 
   const form = document.getElementById('profile-form');
   const otpBox = document.getElementById('otp-box');
+  form.pix_type.addEventListener('change', () => {
+    document.getElementById('pix-cpf-warning').hidden = form.pix_type.value !== 'cpf';
+  });
 
   const finish = async () => {
     await setUser(state.user);

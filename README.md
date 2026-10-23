@@ -44,7 +44,8 @@ PWA para encontrar e divulgar **vendas de garagem, bazares e vendas de mudança*
    A partir daí, só anuncia quem confirmou o celular por SMS — a regra vale no banco, não só na tela.
 
 7. Rode também [`supabase/002_fotos_pix_conta_previa.sql`](supabase/002_fotos_pix_conta_previa.sql) (várias fotos por item, Pix, excluir conta e prévia do link na hora).
-8. (Opcional) Prévia do link no WhatsApp **na hora**: crie no GitHub um *fine-grained token* com acesso **só a este repositório** e permissão **Actions: Read and write**, e guarde-o no Vault do Supabase pelo SQL Editor:
+8. Rode [`supabase/003_privacidade.sql`](supabase/003_privacidade.sql): limita a 30 por hora os contatos (WhatsApp/Pix) que cada conta pode ver, contra coleta em massa, e só deixa públicos os nomes de quem tem venda publicada.
+9. (Opcional) Prévia do link no WhatsApp **na hora**: crie no GitHub um *fine-grained token* com acesso **só a este repositório** e permissão **Actions: Read and write**, e guarde-o no Vault do Supabase pelo SQL Editor:
    ```sql
    select vault.create_secret('COLE_O_TOKEN_AQUI', 'github_deploy_token');
    ```
