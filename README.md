@@ -20,6 +20,9 @@ PWA para encontrar e divulgar **vendas de garagem, bazares e vendas de mudança*
 | Contato e rota | WhatsApp do vendedor (só para logados), rota no Google Maps e no Waze |
 | Denúncia | Denunciar anúncio ou vendedor (tabela `reports`) |
 | Página pública da venda | Link próprio `…/v/<id>/` com pré-visualização no WhatsApp |
+| Várias fotos e edição de item | Até 6 fotos por item (HEIC convertido no aparelho), galeria para o comprador, editar título/preço/categoria/fotos |
+| Pix no item | Vendedor cadastra a chave no Perfil; item mostra QR Code e "copia e cola" com o valor (BR Code estático, sem taxas) |
+| Excluir conta | No Perfil; apaga fotos, vendas, itens e a conta (LGPD) |
 | Convite para instalar | Sugere "Adicionar à tela inicial" após salvar uma venda ou abrir a 2ª venda; tutorial para iPhone |
 
 ## Passo a passo
@@ -39,6 +42,13 @@ PWA para encontrar e divulgar **vendas de garagem, bazares e vendas de mudança*
    returns boolean language sql immutable as $$ select true $$;
    ```
    A partir daí, só anuncia quem confirmou o celular por SMS — a regra vale no banco, não só na tela.
+
+7. Rode também [`supabase/002_fotos_pix_conta_previa.sql`](supabase/002_fotos_pix_conta_previa.sql) (várias fotos por item, Pix, excluir conta e prévia do link na hora).
+8. (Opcional) Prévia do link no WhatsApp **na hora**: crie no GitHub um *fine-grained token* com acesso **só a este repositório** e permissão **Actions: Read and write**, e guarde-o no Vault do Supabase pelo SQL Editor:
+   ```sql
+   select vault.create_secret('COLE_O_TOKEN_AQUI', 'github_deploy_token');
+   ```
+   A cada venda criada ou alterada, o banco pede ao GitHub para republicar o site (~1 min). Sem o token, a prévia sai pela atualização automática a cada 30 minutos.
 
 ### 2. GitHub Pages
 

@@ -2,6 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import { CONFIG } from './config.js';
 import { REGIONS, DF_CENTER, regionByName, SALE_TYPES, CATEGORIES, REPORT_REASONS } from './data.js';
 import { maybeSuggestInstall } from './install.js';
+import { PIX_TYPES, guessPixType, normalizePixKey, formatPixKey, pixPayload, qrSvg } from './pix.js';
 
 const $view = document.getElementById('view');
 const configured = !CONFIG.SUPABASE_URL.includes('SEU-PROJETO');
@@ -95,10 +96,10 @@ function toast(msg, kind = '') {
 const navigate = (path) => (location.hash = '#' + path);
 const saleUrl = (id) => `${BASE_URL}v/${id}/`;
 
-function openModal(html) {
+function openModal(html, className = '') {
   const wrap = document.createElement('div');
   wrap.className = 'modal-backdrop';
-  wrap.innerHTML = `<div class="modal" role="dialog" aria-modal="true">${html}</div>`;
+  wrap.innerHTML = `<div class="modal ${className}" role="dialog" aria-modal="true">${html}</div>`;
   const close = () => wrap.remove();
   wrap.addEventListener('click', (e) => {
     if (e.target === wrap || e.target.closest('[data-close]')) close();
@@ -115,6 +116,7 @@ const icon = {
   camera: '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4m0 0h11l-2 4 2 4H5"/></svg>',
   tag: '<svg viewBox="0 0 24 24"><path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/></svg>',
+  pix: '<svg viewBox="0 0 24 24"><path d="M12 3.5 20.5 12 12 20.5 3.5 12z"/><path d="M8 12h8"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.2-3.8A8 8 0 1 1 8 19z"/><path d="M9 9.5c.5 2.5 2.5 4.5 5 5l1.2-1.2 2 1-.4 1.6c-4.4.4-9-4.2-8.6-8.6L9.8 7l1 2z"/></svg>',
 };
 
@@ -153,7 +155,7 @@ async function setUser(user) {
   if (user) {
     const [p, c, f] = await Promise.all([
       sb.from('profiles').select('id,name').eq('id', user.id).maybeSingle(),
-      sb.from('contacts').select('whatsapp,phone_verified').eq('user_id', user.id).maybeSingle(),
+      sb.from('contacts').select('whatsapp,phone_verified,pix_key,pix_name').eq('user_id', user.id).maybeSingle(),
       sb.from('favorites').select('sale_id').eq('user_id', user.id),
     ]);
     state.profile = p.data;
@@ -246,10 +248,23 @@ function saleCard(s) {
     </a>`;
 }
 
+const MAX_PHOTOS = 6;
+const itemPhotos = (it) => (it.photos?.length ? it.photos : it.photo_url ? [it.photo_url] : []);
+
 function itemPhoto(it) {
-  return it.photo_url
-    ? `<img src="${esc(it.photo_url)}" alt="" loading="lazy">`
+  const photos = itemPhotos(it);
+  return photos.length
+    ? `<img src="${esc(photos[0])}" alt="" loading="lazy">${photos.length > 1 ? `<span class="photo-count">${icon.camera}${photos.length}</span>` : ''}`
     : `<div class="noimg">${icon.tag}</div>`;
+}
+
+// Apaga do Storage fotos do próprio usuário que deixaram de ser usadas (melhor esforço).
+function removeStoredPhotos(urls) {
+  const marker = '/object/public/photos/';
+  const paths = urls
+    .map((u) => (u && u.includes(marker) ? decodeURIComponent(u.split(marker)[1]) : null))
+    .filter((p) => p && p.startsWith(`${state.user.id}/`));
+  if (paths.length) sb.storage.from('photos').remove(paths).catch(() => {});
 }
 
 const STATUS_LABEL = { disponivel: 'Disponível', reservado: 'Reservado', vendido: 'Vendido' };
@@ -386,7 +401,7 @@ async function viewSearch(ctx) {
 
   let iq = sb
     .from('items')
-    .select('id,title,price,category,photo_url,status,sales!inner(id,title,region,starts_on,ends_on,start_time,end_time,hidden)')
+    .select('id,title,price,category,photo_url,photos,status,sales!inner(id,title,region,starts_on,ends_on,start_time,end_time,hidden)')
     .gte('sales.ends_on', today())
     .eq('sales.hidden', false)
     .neq('status', 'vendido')
@@ -496,9 +511,10 @@ async function viewSale(ctx, id) {
           ${ctx.params.has('novo') ? '<p class="hint">Venda criada! Agora fotografe e cadastre os itens. Depois é só compartilhar o link.</p>' : ''}
           <form id="item-form">
             <label class="photo-pick">
-              <input type="file" name="photo" accept="image/*" hidden>
-              <span class="ph">${icon.camera}Foto</span>
+              <input type="file" name="photo" accept="image/*" multiple hidden>
+              <span class="ph">${icon.camera}Fotos</span>
               <img alt="" hidden>
+              <span class="photo-count" hidden></span>
             </label>
             <div class="fields">
               <input name="title" placeholder="O que é? Ex.: Sofá 3 lugares" required maxlength="120">
@@ -528,6 +544,13 @@ async function viewSale(ctx, id) {
   const map = makeMap('sale-map', [sale.lat, sale.lng], 16);
   L.marker([sale.lat, sale.lng], { icon: pinIcon(sale.type) }).addTo(map);
 
+  let hasPix = false;
+  const buyerItemActions = (it) =>
+    it.status === 'disponivel' && !ended
+      ? `<button class="btn small whatsapp" data-act="interest">${icon.whatsapp}Tenho interesse</button>
+         ${hasPix && Number(it.price) > 0 ? `<button class="btn small pix" data-act="pix">${icon.pix}Pagar com Pix</button>` : ''}`
+      : '';
+
   const renderItems = () => {
     const avail = sale.items.filter((i) => i.status === 'disponivel').length;
     document.getElementById('items-title').textContent = sale.items.length
@@ -537,7 +560,7 @@ async function viewSale(ctx, id) {
       .map(
         (it) => `
         <div class="item status-${it.status}" data-id="${it.id}">
-          <div class="photo">${itemPhoto(it)}${it.status !== 'disponivel' ? `<span class="status-tag">${STATUS_LABEL[it.status]}</span>` : ''}</div>
+          <button class="photo" data-act="view-item" aria-label="Ver fotos de ${esc(it.title)}">${itemPhoto(it)}${it.status !== 'disponivel' ? `<span class="status-tag">${STATUS_LABEL[it.status]}</span>` : ''}</button>
           <div class="info">
             <strong>${brl(it.price)}</strong>
             <span class="title">${esc(it.title)}</span>
@@ -546,22 +569,52 @@ async function viewSale(ctx, id) {
               ? `<div class="status-toggle">
                   ${Object.entries(STATUS_LABEL).map(([k, v]) => `<button data-act="status" data-status="${k}" class="${it.status === k ? 'on' : ''}">${v}</button>`).join('')}
                 </div>
-                <button class="link danger" data-act="delete-item">Remover</button>`
-              : it.status === 'disponivel' && !ended
-                ? `<button class="btn small whatsapp" data-act="interest">${icon.whatsapp}Tenho interesse</button>`
-                : ''}
+                <div class="item-links">
+                  <button class="link" data-act="edit-item">Editar</button>
+                  <button class="link danger" data-act="delete-item">Remover</button>
+                </div>`
+              : buyerItemActions(it)}
           </div>
         </div>`,
       )
       .join('');
   };
   renderItems();
+  if (!isOwner && !ended) {
+    sb.rpc('sale_has_pix', { p_sale: sale.id }).then(({ data }) => {
+      if (data && ctx.alive()) {
+        hasPix = true;
+        renderItems();
+      }
+    });
+  }
 
   const openWhatsApp = async (text) => {
     if (!requireLogin(`/venda/${sale.id}`, 'Entre para falar com o vendedor.')) return;
     const { data: phone, error } = await sb.rpc('get_sale_whatsapp', { p_sale: sale.id });
     if (error || !phone) return toast('Não foi possível obter o contato do vendedor.', 'error');
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  };
+
+  const handleItemAction = async (act, item) => {
+    if (act === 'interest') {
+      openWhatsApp(`Olá! Tenho interesse no item "${item.title}" (${brl(item.price)}) da sua venda "${sale.title}". Ainda está disponível?`);
+    } else if (act === 'pix') {
+      if (!requireLogin(`/venda/${sale.id}`, 'Entre para pagar com Pix.')) return;
+      openPix(sale, item, openWhatsApp);
+    } else if (act === 'edit-item') {
+      openItemEditor(sale, item, () => {
+        sortItems();
+        renderItems();
+      });
+    } else if (act === 'delete-item') {
+      if (!confirm(`Remover "${item.title}"?`)) return;
+      const { error } = await sb.from('items').delete().eq('id', item.id);
+      if (error) return toast(error.message, 'error');
+      removeStoredPhotos(itemPhotos(item).filter((u) => u !== sale.cover_url));
+      sale.items = sale.items.filter((i) => i !== item);
+      renderItems();
+    }
   };
 
   $view.onclick = async (e) => {
@@ -574,7 +627,7 @@ async function viewSale(ctx, id) {
     if (act === 'contact') {
       openWhatsApp(`Olá! Vi sua venda "${sale.title}" no ${CONFIG.APP_NAME}: ${saleUrl(sale.id)}`);
     } else if (act === 'interest') {
-      openWhatsApp(`Olá! Tenho interesse no item "${item.title}" (${brl(item.price)}) da sua venda "${sale.title}". Ainda está disponível?`);
+      handleItemAction(act, item);
     } else if (act === 'share') {
       shareSale(sale);
     } else if (act === 'fav') {
@@ -595,16 +648,15 @@ async function viewSale(ctx, id) {
         renderItems();
         toast('Não foi possível atualizar o item.', 'error');
       }
-    } else if (act === 'delete-item') {
-      if (!confirm(`Remover "${item.title}"?`)) return;
-      const { error } = await sb.from('items').delete().eq('id', item.id);
-      if (error) return toast(error.message, 'error');
-      sale.items = sale.items.filter((i) => i !== item);
-      renderItems();
+    } else if (act === 'view-item') {
+      openItemViewer(sale, item, { isOwner, ended, hasPix, onAction: (a) => handleItemAction(a, item) });
+    } else if (['edit-item', 'pix', 'delete-item'].includes(act)) {
+      handleItemAction(act, item);
     } else if (act === 'delete-sale') {
       if (!confirm('Excluir esta venda e todos os itens? Isso não pode ser desfeito.')) return;
       const { error } = await sb.from('sales').delete().eq('id', sale.id);
       if (error) return toast(error.message, 'error');
+      removeStoredPhotos([sale.cover_url, ...sale.items.flatMap(itemPhotos)]);
       toast('Venda excluída.');
       navigate('/minhas');
     } else if (act === 'report-sale' || act === 'report-user') {
@@ -623,28 +675,35 @@ function setupItemForm(sale, renderItems, sortItems) {
   const fileInput = form.photo;
   const preview = form.querySelector('.photo-pick img');
   const ph = form.querySelector('.photo-pick .ph');
+  const count = form.querySelector('.photo-pick .photo-count');
   let lastCategory = localStorage.getItem('ultima-categoria') || 'outros';
   form.category.value = lastCategory;
+  let files = [];
 
   fileInput.addEventListener('change', () => {
-    const f = fileInput.files[0];
-    if (f) previewPhoto(f, preview, ph);
+    files = [...fileInput.files].slice(0, MAX_PHOTOS);
+    if (fileInput.files.length > MAX_PHOTOS) toast(`Até ${MAX_PHOTOS} fotos por item. Usei as primeiras ${MAX_PHOTOS}.`);
+    count.hidden = files.length < 2;
+    count.textContent = `+${files.length - 1}`;
+    if (files[0]) previewPhoto(files[0], preview, ph);
+    files.slice(1).forEach((f) => isHeic(f) && convertHeic(f)); // adianta a conversão
   });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = form.querySelector('button');
     btn.disabled = true;
-    btn.textContent = 'Salvando…';
+    btn.textContent = files.length > 1 ? `Enviando ${files.length} fotos…` : 'Salvando…';
     try {
-      const file = fileInput.files[0];
-      const photo_url = file ? await uploadPhoto(file) : null;
+      const photos = await Promise.all(files.map(uploadPhoto));
+      const photo_url = photos[0] || null;
       const row = {
         sale_id: sale.id,
         title: form.title.value.trim(),
         price: parsePrice(form.price.value),
         category: form.category.value,
         photo_url,
+        photos,
       };
       const { data, error } = await sb.from('items').insert(row).select().single();
       if (error) throw error;
@@ -657,8 +716,10 @@ function setupItemForm(sale, renderItems, sortItems) {
       }
       localStorage.setItem('ultima-categoria', row.category);
       form.reset();
+      files = [];
       form.category.value = row.category;
       preview.hidden = true;
+      count.hidden = true;
       ph.hidden = false;
       form.title.focus();
       toast('Item salvo!');
@@ -669,6 +730,176 @@ function setupItemForm(sale, renderItems, sortItems) {
       btn.textContent = 'Salvar e adicionar outro';
     }
   });
+}
+
+// Fotos do item em tela cheia, com as ações de compra.
+function openItemViewer(sale, item, { isOwner, ended, hasPix, onAction }) {
+  const photos = itemPhotos(item);
+  const canBuy = !isOwner && item.status === 'disponivel' && !ended;
+  const { el, close } = openModal(`
+    ${photos.length ? `
+      <div class="gallery">${photos.map((u) => `<img src="${esc(u)}" alt="">`).join('')}</div>
+      ${photos.length > 1 ? `<div class="dots">${photos.map((_, i) => `<span class="${i === 0 ? 'on' : ''}"></span>`).join('')}</div>` : ''}` : ''}
+    <div>
+      <strong class="price">${brl(item.price)}</strong>
+      <h2>${esc(item.title)}</h2>
+      <p class="meta">${CATEGORIES[item.category] || ''}${item.status !== 'disponivel' ? ` · ${STATUS_LABEL[item.status]}` : ''}</p>
+    </div>
+    <div class="actions">
+      ${canBuy ? `<button class="btn whatsapp" data-a="interest">${icon.whatsapp}Tenho interesse</button>` : ''}
+      ${canBuy && hasPix && Number(item.price) > 0 ? `<button class="btn pix" data-a="pix">${icon.pix}Pagar com Pix</button>` : ''}
+      ${isOwner ? '<button class="btn" data-a="edit-item">Editar item</button>' : ''}
+      <button class="btn" data-close>Fechar</button>
+    </div>`, 'viewer');
+  const gallery = el.querySelector('.gallery');
+  const dots = el.querySelectorAll('.dots span');
+  if (gallery && dots.length) {
+    gallery.addEventListener('scroll', () => {
+      const i = Math.round(gallery.scrollLeft / gallery.clientWidth);
+      dots.forEach((d, j) => d.classList.toggle('on', i === j));
+    });
+  }
+  el.querySelectorAll('[data-a]').forEach((b) => (b.onclick = () => {
+    close();
+    onAction(b.dataset.a);
+  }));
+}
+
+// Mostra um arquivo escolhido numa <img>, convertendo HEIC se o navegador não abrir.
+function showFile(img, file) {
+  img.onerror = async () => {
+    img.onerror = null;
+    const jpeg = isHeic(file) ? await convertHeic(file) : null;
+    if (jpeg) img.src = URL.createObjectURL(jpeg);
+  };
+  img.src = URL.createObjectURL(file);
+}
+
+function openItemEditor(sale, item, done) {
+  let photos = [...itemPhotos(item)]; // URLs já enviadas ou arquivos novos (File)
+  const { el, close } = openModal(`
+    <h2>Editar item</h2>
+    <form>
+      <div class="photo-edit"></div>
+      <p class="hint">Toque numa foto para torná-la a principal.</p>
+      <label>Título<input name="title" required maxlength="120" value="${esc(item.title)}"></label>
+      <div class="row">
+        <label>Preço (R$)<input name="price" inputmode="decimal" value="${item.price == null ? '' : String(item.price).replace('.', ',')}" placeholder="A combinar"></label>
+        <label>Categoria
+          <select name="category">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === item.category ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="btn primary">Salvar</button>
+        <button type="button" class="btn" data-close>Cancelar</button>
+      </div>
+    </form>`);
+  const box = el.querySelector('.photo-edit');
+  const form = el.querySelector('form');
+
+  const renderPhotos = () => {
+    box.innerHTML =
+      photos.map((_, i) => `
+        <div class="thumb-edit" data-i="${i}">
+          <img alt="">
+          ${i === 0 ? '<span class="main-tag">Principal</span>' : ''}
+          <button type="button" class="rm" data-rm="${i}" aria-label="Remover foto">&times;</button>
+        </div>`).join('') +
+      (photos.length < MAX_PHOTOS
+        ? `<label class="add-photo">${icon.camera}<span>Adicionar</span><input type="file" accept="image/*" multiple hidden></label>`
+        : '');
+    box.querySelectorAll('.thumb-edit img').forEach((img, i) => {
+      const p = photos[i];
+      if (typeof p === 'string') img.src = p;
+      else showFile(img, p);
+    });
+    box.querySelector('input[type=file]')?.addEventListener('change', (e) => {
+      const room = MAX_PHOTOS - photos.length;
+      if (e.target.files.length > room) toast(`Até ${MAX_PHOTOS} fotos por item.`);
+      photos.push(...[...e.target.files].slice(0, room));
+      renderPhotos();
+    });
+  };
+  renderPhotos();
+
+  box.addEventListener('click', (e) => {
+    const rm = e.target.closest('[data-rm]');
+    if (rm) {
+      photos.splice(Number(rm.dataset.rm), 1);
+      return renderPhotos();
+    }
+    const thumb = e.target.closest('.thumb-edit');
+    if (thumb && thumb.dataset.i !== '0') {
+      photos.unshift(...photos.splice(Number(thumb.dataset.i), 1));
+      renderPhotos();
+    }
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector('button.primary');
+    btn.disabled = true;
+    btn.textContent = 'Salvando…';
+    try {
+      const urls = await Promise.all(photos.map((p) => (typeof p === 'string' ? p : uploadPhoto(p))));
+      const changes = {
+        title: form.title.value.trim(),
+        price: parsePrice(form.price.value),
+        category: form.category.value,
+        photos: urls,
+        photo_url: urls[0] || null,
+      };
+      const { error } = await sb.from('items').update(changes).eq('id', item.id);
+      if (error) throw new Error(`Erro ao salvar o item: ${error.message}`);
+      removeStoredPhotos(itemPhotos(item).filter((u) => !urls.includes(u) && u !== sale.cover_url));
+      Object.assign(item, changes);
+      if (urls[0] && !sale.cover_url) {
+        sale.cover_url = urls[0];
+        await sb.from('sales').update({ cover_url: urls[0] }).eq('id', sale.id);
+      }
+      close();
+      done();
+      toast('Item atualizado.');
+    } catch (err) {
+      toast(err.message || 'Erro ao salvar o item.', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Salvar';
+    }
+  });
+}
+
+async function openPix(sale, item, openWhatsApp) {
+  const { data, error } = await sb.rpc('get_sale_pix', { p_sale: sale.id });
+  const pix = data?.[0];
+  if (error || !pix) return toast('O vendedor não informou uma chave Pix.', 'error');
+  const receiver = pix.pix_name || sale.owner?.name || '';
+  const code = pixPayload({ key: pix.pix_key, name: receiver, amount: Number(item.price) });
+  const { el, close } = openModal(`
+    <h2>Pagar com Pix</h2>
+    <p class="meta big">${esc(item.title)} · <strong>${brl(item.price)}</strong></p>
+    <div class="notice"><p><strong>Combine com o vendedor antes de pagar</strong>, para garantir que o item ainda está disponível.</p></div>
+    <div class="qr">Gerando QR Code…</div>
+    <button class="btn primary" data-copy>Copiar código Pix (copia e cola)</button>
+    <p class="hint">Recebedor: <strong>${esc(receiver)}</strong>. Confira o nome no app do banco antes de confirmar.</p>
+    <div class="actions">
+      <button class="btn whatsapp" data-paid>${icon.whatsapp}Avisar o vendedor que paguei</button>
+      <button class="btn" data-close>Fechar</button>
+    </div>`, 'pix-modal');
+  qrSvg(code)
+    .then((svg) => (el.querySelector('.qr').innerHTML = svg))
+    .catch((err) => (el.querySelector('.qr').textContent = err.message));
+  el.querySelector('[data-copy]').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast('Código Pix copiado! Cole no app do seu banco, em Pix > Copia e cola.');
+    } catch {
+      prompt('Copie o código Pix:', code);
+    }
+  };
+  el.querySelector('[data-paid]').onclick = () => {
+    close();
+    openWhatsApp(`Olá! Fiz o Pix de ${brl(item.price)} pelo item "${item.title}" da sua venda "${sale.title}". Podemos combinar a retirada?`);
+  };
 }
 
 async function toggleFavorite(saleId) {
@@ -1121,10 +1352,37 @@ async function viewProfile(ctx) {
       <p class="hint">Só aparece para compradores logados, quando tocam em "Falar no WhatsApp".
         ${c.whatsapp ? (c.phone_verified ? '<span class="ok">Telefone verificado ✓</span>' : state.requireVerification ? '<span class="warn">Telefone ainda não verificado</span>' : '') : ''}</p>
       <div id="otp-box"></div>
+
+      <fieldset class="pix-box">
+        <legend>${icon.pix} Receber por Pix (opcional)</legend>
+        <p class="hint">Com a chave cadastrada, cada item mostra um QR Code com o valor já preenchido. O dinheiro vai direto para a sua conta, sem taxas. A chave só aparece para compradores logados.</p>
+        <div class="row">
+          <label>Tipo de chave
+            <select name="pix_type">
+              ${Object.entries(PIX_TYPES).map(([k, v]) => `<option value="${k}" ${k === guessPixType(c.pix_key) ? 'selected' : ''}>${v}</option>`).join('')}
+            </select>
+          </label>
+          <label>Chave Pix
+            <input name="pix_key" value="${esc(c.pix_key ? formatPixKey(c.pix_key) : '')}" autocomplete="off">
+          </label>
+        </div>
+        <label>Nome do recebedor (como aparece no banco)
+          <input name="pix_name" maxlength="25" value="${esc(c.pix_name || '')}" placeholder="${esc((state.profile?.name || '').slice(0, 25))}">
+        </label>
+      </fieldset>
+
       <button class="btn primary big">Salvar</button>
     </form>
     <div class="form">
       <button class="btn big" id="logout">Sair da conta</button>
+      <details class="danger-zone">
+        <summary>Excluir minha conta</summary>
+        <p>Isso apaga para sempre sua conta, suas vendas, itens, fotos e favoritas. Não dá para desfazer.</p>
+        <label>Para confirmar, digite <strong>EXCLUIR</strong>
+          <input id="delete-confirm" autocomplete="off">
+        </label>
+        <button class="btn danger big" id="delete-account">Excluir minha conta para sempre</button>
+      </details>
     </div>`;
 
   const form = document.getElementById('profile-form');
@@ -1144,8 +1402,17 @@ async function viewProfile(ctx) {
     const phone = raw ? normalizePhone(raw) : null;
     if (raw && !phone) return toast('Informe um celular válido com DDD.', 'error');
 
+    const pixRaw = form.pix_key.value.trim();
+    const pix_key = pixRaw ? normalizePixKey(form.pix_type.value, pixRaw) : null;
+    if (pixRaw && !pix_key) return toast(`Chave Pix inválida para o tipo "${PIX_TYPES[form.pix_type.value]}".`, 'error');
+    const pix_name = pix_key ? form.pix_name.value.trim() || (form.name.value.trim().slice(0, 25)) : null;
+
     const p1 = await sb.from('profiles').update({ name: form.name.value.trim() }).eq('id', state.user.id);
     if (p1.error) return toast(p1.error.message, 'error');
+    if (pix_key !== (c.pix_key || null) || pix_name !== (c.pix_name || null)) {
+      const px = await sb.from('contacts').update({ pix_key, pix_name }).eq('user_id', state.user.id);
+      if (px.error) return toast(`Erro ao salvar o Pix: ${px.error.message}`, 'error');
+    }
 
     const changed = phone !== (c.whatsapp || null);
     const needsSms = state.requireVerification && phone && !(changed === false && c.phone_verified);
@@ -1179,6 +1446,36 @@ async function viewProfile(ctx) {
   document.getElementById('logout').onclick = async () => {
     await sb.auth.signOut();
     navigate('/');
+  };
+
+  document.getElementById('delete-account').onclick = async (e) => {
+    if (document.getElementById('delete-confirm').value.trim().toUpperCase() !== 'EXCLUIR') {
+      return toast('Digite EXCLUIR para confirmar.', 'error');
+    }
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = 'Excluindo…';
+    try {
+      // Fotos primeiro (o Storage não deixa apagar pelo banco), depois a conta e tudo ligado a ela.
+      const bucket = sb.storage.from('photos');
+      for (let round = 0; round < 50; round++) {
+        const { data: files, error } = await bucket.list(state.user.id, { limit: 100 });
+        if (error) throw error;
+        if (!files.length) break;
+        const { data: removed, error: rmError } = await bucket.remove(files.map((f) => `${state.user.id}/${f.name}`));
+        if (rmError) throw rmError;
+        if (!removed?.length) throw new Error('as fotos não puderam ser apagadas.');
+      }
+      const { error } = await sb.rpc('delete_my_account');
+      if (error) throw error;
+      await sb.auth.signOut({ scope: 'local' });
+      toast('Sua conta foi excluída.');
+      navigate('/');
+    } catch (err) {
+      toast(`Não foi possível excluir a conta: ${err.message}`, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Excluir minha conta para sempre';
+    }
   };
 }
 

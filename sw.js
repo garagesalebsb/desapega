@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir rápido e funcionar com internet ruim.
 // Arquivos do app: rede primeiro, cache como reserva. Dados do Supabase: sempre da rede.
-const CACHE = 'desapego-v2';
+const CACHE = 'desapego-v3';
 const SHELL = [
   './',
   'index.html',
@@ -9,6 +9,7 @@ const SHELL = [
   'js/config.js',
   'js/data.js',
   'js/install.js',
+  'js/pix.js',
   'manifest.webmanifest',
   'icons/icon.svg',
 ];
