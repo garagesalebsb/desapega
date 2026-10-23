@@ -89,7 +89,7 @@ function toast(msg, kind = '') {
   el.className = `toast ${kind}`;
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), 3500);
+  toastTimer = setTimeout(() => (el.hidden = true), kind === 'error' ? 9000 : 3500);
 }
 
 const navigate = (path) => (location.hash = '#' + path);
@@ -762,11 +762,24 @@ async function resizeImage(file, max = 1280, quality = 0.8) {
   return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
 }
 
+const UPLOAD_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
 async function uploadPhoto(file) {
-  const blob = await resizeImage(file);
-  const path = `${state.user.id}/${crypto.randomUUID()}.jpg`;
-  const { error } = await sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
-  if (error) throw error;
+  let blob = await resizeImage(file).catch(() => null);
+  if (!blob) {
+    // O navegador não conseguiu ler/reduzir a foto: envia o original se o formato for aceito.
+    if (!UPLOAD_TYPES[file.type]) {
+      throw new Error(/hei[cf]/i.test(file.type || file.name)
+        ? 'Fotos HEIC não são aceitas por este navegador. No iPhone, vá em Ajustes > Câmera > Formatos e escolha "Mais Compatível", ou envie um print da foto.'
+        : 'Formato de foto não suportado. Use JPG ou PNG.');
+    }
+    if (file.size > 5 * 1024 * 1024) throw new Error('A foto é muito grande (máximo 5 MB).');
+    blob = file;
+  }
+  const type = blob.type || 'image/jpeg';
+  const path = `${state.user.id}/${crypto.randomUUID()}.${UPLOAD_TYPES[type] || 'jpg'}`;
+  const { error } = await sb.storage.from('photos').upload(path, blob, { contentType: type, cacheControl: '31536000' });
+  if (error) throw new Error(`Erro ao enviar a foto: ${error.message}`);
   return sb.storage.from('photos').getPublicUrl(path).data.publicUrl;
 }
 
@@ -945,13 +958,24 @@ async function viewSaleForm(ctx, id) {
         lat: pos[0],
         lng: pos[1],
       };
-      if (coverInput.files[0]) row.cover_url = await uploadPhoto(coverInput.files[0]);
       const res = sale
         ? await sb.from('sales').update(row).eq('id', sale.id).select('id').single()
         : await sb.from('sales').insert(row).select('id').single();
-      if (res.error) throw res.error;
+      if (res.error) throw new Error(`Erro ao salvar a venda: ${res.error.message}`);
       localStorage.setItem('regiao', row.region);
-      toast(sale ? 'Venda atualizada.' : 'Venda publicada!');
+      // A capa vai depois da venda salva: se a foto falhar, a venda não se perde.
+      let coverError = null;
+      if (coverInput.files[0]) {
+        try {
+          const cover_url = await uploadPhoto(coverInput.files[0]);
+          const up = await sb.from('sales').update({ cover_url }).eq('id', res.data.id);
+          if (up.error) throw up.error;
+        } catch (err) {
+          coverError = err;
+        }
+      }
+      if (coverError) toast(`Venda salva, mas a foto de capa falhou. ${coverError.message}`, 'error');
+      else toast(sale ? 'Venda atualizada.' : 'Venda publicada!');
       navigate(`/venda/${res.data.id}${sale ? '' : '?novo=1'}`);
     } catch (err) {
       toast(err.message || 'Erro ao salvar.', 'error');
