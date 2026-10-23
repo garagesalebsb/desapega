@@ -88,7 +88,7 @@ function parsePrice(s) {
 let toastTimer;
 // Com "err", a falha também vai para o monitoramento (erros de digitação do usuário não passam err).
 function toast(msg, kind = '', err = null) {
-  if (err) reportError(err, location.hash.split('?')[0] || '#/');
+  if (err && !isNetworkError(err)) reportError(err, (location.hash.split('?')[0] || '#/').replace(/[0-9a-f-]{36}/g, ':id'));
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.className = `toast ${kind}`;
@@ -205,6 +205,12 @@ const routes = [
   [/^\/perfil$/, viewProfile],
 ];
 
+// Saindo da página, as buscas em andamento são interrompidas: isso não é erro do app.
+let leaving = false;
+addEventListener('pagehide', () => (leaving = true));
+addEventListener('pageshow', () => (leaving = false));
+const isNetworkError = (e) => /Failed to fetch|Load failed|NetworkError|network/i.test(`${e?.message} ${e?.details}`);
+
 let renderId = 0;
 async function render() {
   cleanup.forEach((fn) => fn());
@@ -222,9 +228,20 @@ async function render() {
     try {
       await view(ctx, ...m.slice(1));
     } catch (e) {
+      if (leaving || !ctx.alive()) return;
+      if (isNetworkError(e)) {
+        $view.innerHTML = `
+          <div class="empty">
+            <h2>Sem conexão</h2>
+            <p>Não conseguimos carregar agora. Confira sua internet e tente de novo.</p>
+            <button class="btn primary" id="retry">Tentar de novo</button>
+          </div>`;
+        document.getElementById('retry').onclick = render;
+        return;
+      }
       console.error(e);
       reportError(e, `tela ${path.replace(/[0-9a-f-]{36}/g, ':id')}`);
-      if (ctx.alive()) $view.innerHTML = `<div class="empty"><h2>Algo deu errado</h2><p>${esc(e.message)}</p><a class="btn" href="#/">Voltar ao início</a></div>`;
+      $view.innerHTML = `<div class="empty"><h2>Algo deu errado</h2><p>${esc(e.message)}</p><a class="btn" href="#/">Voltar ao início</a></div>`;
     }
     return;
   }

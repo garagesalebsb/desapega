@@ -39,6 +39,15 @@ test.describe('Visitante sem login', () => {
     await expect(page.locator('#f-region')).toHaveValue('Guará');
   });
 
+  test('sem internet mostra aviso e permite tentar de novo', async ({ page }) => {
+    await page.route('**/rest/v1/**', (route) => route.abort('internetdisconnected'));
+    await page.goto('./');
+    await expect(page.getByRole('heading', { name: 'Sem conexão' })).toBeVisible();
+    await page.unroute('**/rest/v1/**');
+    await page.getByRole('button', { name: 'Tentar de novo' }).click();
+    await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
+  });
+
   test('menu inferior abre a busca', async ({ page }) => {
     await page.goto('./');
     await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Buscar' }).click();
