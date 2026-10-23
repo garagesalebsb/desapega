@@ -141,8 +141,14 @@ function makeMap(el, center, zoom, opts = {}) {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap',
   }).addTo(map);
-  cleanup.push(() => map.remove());
-  setTimeout(() => map.invalidateSize(), 50);
+  // Ao trocar de tela: cancela o ajuste pendente e para animações antes de remover o mapa
+  // (remover no meio de uma animação gera erro no Leaflet).
+  const resize = setTimeout(() => map.invalidateSize({ animate: false }), 50);
+  cleanup.push(() => {
+    clearTimeout(resize);
+    map.stop();
+    map.remove();
+  });
   return map;
 }
 const pinIcon = (type) =>
@@ -362,8 +368,8 @@ async function viewHome(ctx) {
       .bindPopup(`<a href="#/venda/${s.id}"><strong>${esc(s.title)}</strong></a><br>${fmtWhen(s)}`);
     bounds.push([s.lat, s.lng]);
   }
-  if (bounds.length > 1) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
-  else if (bounds.length === 1) map.setView(bounds[0], 15);
+  if (bounds.length > 1) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15, animate: false });
+  else if (bounds.length === 1) map.setView(bounds[0], 15, { animate: false });
 
   const list = document.getElementById('home-list');
   if (!sales.length) {

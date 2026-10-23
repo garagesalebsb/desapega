@@ -31,6 +31,16 @@ test.describe('Visitante sem login', () => {
     expect(scroll).toBeLessThanOrEqual(width);
   });
 
+  test('trocar de tela rápido não gera erro no mapa', async ({ page }) => {
+    await page.goto('./');
+    for (const hash of ['#/?regiao=Guar%C3%A1', '#/buscar', '#/?quando=todas', '#/', '#/?regiao=Lago%20Sul']) {
+      await page.evaluate((h) => (location.hash = h), hash);
+      await page.waitForTimeout(30);
+    }
+    await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
+    await page.waitForTimeout(500); // deixa terminar qualquer animação pendente
+  });
+
   test('filtro por região vai para o endereço e fica lembrado', async ({ page }) => {
     await page.goto('./');
     await page.locator('#f-region').selectOption('Guará');
@@ -93,6 +103,7 @@ test.describe('Visitante sem login', () => {
     const sale = await firstSale(request);
     test.skip(!sale, 'nenhuma venda publicada para testar');
     await page.goto(`./#/venda/${sale.id}`);
+    await expect(page.locator('#items-title')).not.toBeEmpty(); // espera os itens aparecerem
     const photo = page.locator('#items [data-act=view-item]').first();
     test.skip(!(await photo.count()), 'a venda não tem itens');
     await photo.click();
