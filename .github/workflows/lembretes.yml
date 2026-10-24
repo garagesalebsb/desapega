@@ -1,0 +1,39 @@
+name: Lembretes das vendas salvas
+
+on:
+  schedule:
+    # Horário de Brasília = UTC-3. O GitHub às vezes atrasa alguns minutos.
+    - cron: '0 22 * * *' # 19h: vendas de amanhã
+    - cron: '0 10 * * *' # 7h: vendas de hoje
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: 'Quais lembretes enviar'
+        type: choice
+        options: [vespera, hoje]
+        default: vespera
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lembretes
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save --no-audit --no-fund --no-package-lock web-push@3.6.7
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      - run: node scripts/send-reminders.mjs
+        env:
+          KIND: ${{ inputs.kind || (github.event.schedule == '0 10 * * *' && 'hoje') || 'vespera' }}
+          SITE_URL: https://garagesalebsb.github.io/desapego-brasilia
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          REMINDERS_SECRET: ${{ secrets.REMINDERS_SECRET }}

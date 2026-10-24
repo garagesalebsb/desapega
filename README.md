@@ -51,6 +51,8 @@ PWA para encontrar e divulgar **vendas de garagem, bazares e vendas de mudança*
    ```
    A cada venda criada ou alterada, o banco pede ao GitHub para republicar o site (~1 min). Sem o token, a prévia sai pela atualização automática a cada 30 minutos.
 
+10. Rode [`supabase/004_lembretes.sql`](supabase/004_lembretes.sql): lembretes por notificação das vendas salvas (véspera às 19h, dia às 7h). O envio é feito pelo workflow **Lembretes das vendas salvas**, que usa os segredos `VAPID_PRIVATE_KEY` e `REMINDERS_SECRET` do repositório (no banco fica só o hash da senha). A chave pública correspondente está em `js/config.js` (`VAPID_PUBLIC_KEY`). No iPhone, os lembretes só funcionam com o app instalado na tela de início (iOS 16.4 ou mais novo).
+
 ### 2. GitHub Pages
 
 ```bash
@@ -101,13 +103,15 @@ js/config.js            URL e chave do Supabase
 js/app.js               telas, rotas e chamadas ao Supabase
 js/data.js              regiões administrativas, categorias, tipos
 js/install.js           convite para instalar
+js/reminders.js         inscrição do aparelho nos lembretes
 icons/                  ícones e imagem padrão de compartilhamento
 supabase/schema.sql     tabelas, gatilhos, RLS e bucket de fotos
 scripts/build-site.mjs  monta o site e as páginas de prévia
+scripts/send-reminders.mjs  envia os lembretes (workflow lembretes.yml)
 ```
 
 ## Próximas fases (do plano)
 
-- **Fase 2:** avaliações, alertas por interesse, reserva com prazo, notificações push
+- **Fase 2:** avaliações, alertas por interesse, reserva com prazo
 - **Fase 3:** chat próprio, ofertas, Pix com QR Code, painel com estatísticas, eventos com vários vendedores
 - **Fase 4:** destaque pago, planos para organizadores e brechós, outras cidades

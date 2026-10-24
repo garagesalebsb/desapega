@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir rápido e funcionar com internet ruim.
 // Arquivos do app: rede primeiro, cache como reserva. Dados do Supabase: sempre da rede.
-const CACHE = 'desapego-v7';
+const CACHE = 'desapego-v8';
 const SHELL = [
   './',
   'index.html',
@@ -13,6 +13,7 @@ const SHELL = [
   'js/metadata.js',
   'js/monitoring.js',
   'js/when.js',
+  'js/reminders.js',
   'manifest.webmanifest',
   'icons/icon.svg',
 ];
@@ -60,5 +61,34 @@ self.addEventListener('fetch', (e) => {
         return res;
       })
       .catch(() => caches.match(req).then((hit) => hit || caches.match('./'))),
+  );
+});
+
+// Lembretes das vendas salvas (enviados pelo GitHub Actions: scripts/send-reminders.mjs).
+self.addEventListener('push', (e) => {
+  let msg = {};
+  try {
+    msg = e.data ? e.data.json() : {};
+  } catch {}
+  e.waitUntil(
+    self.registration.showNotification(msg.title || 'Desapego Brasília', {
+      body: msg.body || 'Uma venda que você salvou está chegando.',
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      tag: msg.tag,
+      data: { url: msg.url || './#/minhas?aba=favoritas' },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      const win = wins.find((w) => w.url.startsWith(self.registration.scope));
+      if (win) return win.focus().then(() => win.navigate(url)).catch(() => self.clients.openWindow(url));
+      return self.clients.openWindow(url);
+    }),
   );
 });

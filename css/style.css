@@ -280,6 +280,12 @@ legend { font-weight: 600; font-size: .92rem; margin-bottom: 6px; }
 .pix-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--surface); }
 .pix-box legend { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
 
+.reminder-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--surface); margin: 0 0 12px; }
+.reminder-box legend { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
+.reminder-box.compact { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--brand-soft); border: 0; }
+.reminder-box.compact .hint { flex: 1 1 200px; margin: 0; color: inherit; }
+.reminder-box .btn svg { width: 18px; height: 18px; }
+
 .warn-box { background: color-mix(in srgb, var(--mudanca) 14%, var(--surface)); }
 .danger-zone { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; background: var(--surface); }
 .danger-zone summary { cursor: pointer; color: var(--danger); font-weight: 600; }
