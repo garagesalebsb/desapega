@@ -9,3 +9,6 @@ package-lock.json
 
 # Arte original da logo (fica só no computador)
 icons/*.jfif
+
+# Scripts só para este computador (exemplos, testes)
+supabase/*.local.sql

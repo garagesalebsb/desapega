@@ -110,7 +110,7 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByRole('heading', { name: 'Entrar' })).toBeVisible();
   });
 
-  test('página da venda mostra os dados, rotas e pede login para o WhatsApp', async ({ page, request }) => {
+  test('página da venda mostra os dados, rotas e pede login para conversar sobre um item', async ({ page, request }) => {
     const sale = await firstSale(request);
     test.skip(!sale, 'nenhuma venda publicada para testar');
     await page.goto(`./#/venda/${sale.id}`);
@@ -124,9 +124,25 @@ test.describe('Visitante sem login', () => {
       await expect(page.getByRole('link', { name: 'Google Agenda' })).toHaveAttribute('href', /calendar\.google\.com.*dates=\d{8}T\d{6}Z/);
       await page.getByRole('button', { name: 'Cancelar' }).click();
     }
-    await page.getByRole('button', { name: 'Falar no WhatsApp' }).click();
+    await expect(page.locator('#items-title')).not.toBeEmpty();
+    const interest = page.getByRole('button', { name: 'Tenho interesse' }).first();
+    test.skip(!(await interest.count()), 'a venda não tem itens disponíveis');
+    await interest.click();
     await expect(page).toHaveURL(/#\/entrar/);
-    await expect(page.getByText('Entre para falar com o vendedor')).toBeVisible();
+    await expect(page.getByText('Entre para conversar com o vendedor')).toBeVisible();
+  });
+
+  test('chat pede login e o menu mostra entrar, minhas vendas e favoritas', async ({ page }) => {
+    await page.goto('./');
+    const nav = page.getByRole('navigation', { name: 'Navegação principal' });
+    await expect(nav.getByRole('link', { name: 'Chat' })).toBeVisible();
+    await nav.getByRole('link', { name: 'Menu' }).click();
+    await expect(page).toHaveURL(/#\/menu/);
+    await expect(page.getByRole('link', { name: 'Entrar' }).last()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Minhas vendas' })).toHaveAttribute('href', '#/minhas');
+    await expect(page.getByRole('link', { name: 'Favoritas' })).toHaveAttribute('href', '#/minhas?aba=favoritas');
+    await nav.getByRole('link', { name: 'Chat' }).click();
+    await expect(page.getByText('Entre para ver suas conversas')).toBeVisible();
   });
 
   test('foto do item abre a galeria', async ({ page, request }) => {
