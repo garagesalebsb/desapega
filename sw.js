@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir rápido e funcionar com internet ruim.
 // Arquivos do app: rede primeiro, cache como reserva. Dados do Supabase: sempre da rede.
-const CACHE = 'desapego-v15';
+const CACHE = 'desapego-v16';
 const SHELL = [
   './',
   'index.html',
@@ -71,15 +71,20 @@ self.addEventListener('push', (e) => {
   try {
     msg = e.data ? e.data.json() : {};
   } catch {}
-  // App aberto: atualiza o número do sininho.
-  self.clients.matchAll({ type: 'window' }).then((wins) => wins.forEach((w) => w.postMessage({ type: 'push' })));
   e.waitUntil(
-    self.registration.showNotification(msg.title || 'Desapega', {
-      body: msg.body || 'Uma venda que você salvou está chegando.',
-      icon: 'icons/icon-192.png',
-      badge: 'icons/badge-96.png',
-      tag: msg.tag,
-      data: { url: msg.url || './#/minhas?aba=favoritas' },
+    self.clients.matchAll({ type: 'window' }).then((wins) => {
+      // App aberto: atualiza os números do sininho e do chat.
+      wins.forEach((w) => w.postMessage({ type: 'push' }));
+      // A pessoa já está vendo esta conversa: não precisa de aviso.
+      if (msg.url && wins.some((w) => w.focused && w.visibilityState === 'visible' && w.url === msg.url)) return;
+      return self.registration.showNotification(msg.title || 'Desapega', {
+        body: msg.body || 'Uma venda que você salvou está chegando.',
+        icon: 'icons/icon-192.png',
+        badge: 'icons/badge-96.png',
+        tag: msg.tag,
+        renotify: !!msg.tag, // mensagem nova da mesma conversa toca de novo
+        data: { url: msg.url || './#/minhas?aba=favoritas' },
+      });
     }),
   );
 });
