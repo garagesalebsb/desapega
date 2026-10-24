@@ -21,12 +21,12 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByRole('heading', { name: /Vendas de garagem, bazares e mudanças/ })).toBeVisible();
     await expect(page.locator('#f-region option')).toHaveCount(36); // "Todo o DF" + 35 regiões
     await expect(page.locator('#home-map.leaflet-container')).toBeVisible();
-    await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
+    await expect(page.locator('#home-list .sale-card:not(.skeleton), #home-list .empty').first()).toBeVisible();
   });
 
   test('a tela cabe no celular, sem rolagem para o lado', async ({ page }) => {
     await page.goto('./');
-    await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
+    await expect(page.locator('#home-list .sale-card:not(.skeleton), #home-list .empty').first()).toBeVisible();
     const { scroll, width } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: innerWidth }));
     expect(scroll).toBeLessThanOrEqual(width);
   });
@@ -37,7 +37,7 @@ test.describe('Visitante sem login', () => {
       await page.evaluate((h) => (location.hash = h), hash);
       await page.waitForTimeout(30);
     }
-    await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
+    await expect(page.locator('#home-list .sale-card:not(.skeleton), #home-list .empty').first()).toBeVisible();
     await page.waitForTimeout(500); // deixa terminar qualquer animação pendente
   });
 
@@ -55,7 +55,7 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByRole('heading', { name: 'Sem conexão' })).toBeVisible();
     await page.unroute('**/rest/v1/**');
     await page.getByRole('button', { name: 'Tentar de novo' }).click();
-    await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
+    await expect(page.locator('#home-list .sale-card:not(.skeleton), #home-list .empty').first()).toBeVisible();
   });
 
   test('perto de mim pede a localização e ordena por distância', async ({ page, context }) => {
@@ -65,9 +65,10 @@ test.describe('Visitante sem login', () => {
     await page.getByRole('button', { name: 'Perto de mim' }).click();
     await expect(page).toHaveURL(/perto=1/);
     await expect(page.getByRole('button', { name: 'Perto de mim' })).toHaveAttribute('aria-pressed', 'true');
-    const card = page.locator('#home-list .sale-card').first();
-    if (await card.count()) await expect(card).toContainText(/\d+(,\d)? ?(km|m)/);
-    else await expect(page.locator('#home-list .empty')).toBeVisible();
+    // Espera o resultado de verdade (não o cartão cinza de carregamento): vendas com distância ou o aviso de vazio.
+    const result = page.locator('#home-list .sale-card:not(.skeleton), #home-list .empty').first();
+    await expect(result).toBeVisible();
+    if (await result.evaluate((el) => el.classList.contains('sale-card'))) await expect(result).toContainText(/\d+(,\d)? ?(km|m)/);
     await page.getByRole('button', { name: 'Perto de mim' }).click();
     await expect(page).not.toHaveURL(/perto=1/);
   });
@@ -110,7 +111,7 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByRole('heading', { name: 'Entrar' })).toBeVisible();
   });
 
-  test('página da venda mostra os dados, rotas e pede login para o WhatsApp', async ({ page, request }) => {
+  test('página da venda mostra os dados, rotas e pede login para conversar sobre um item', async ({ page, request }) => {
     const sale = await firstSale(request);
     test.skip(!sale, 'nenhuma venda publicada para testar');
     await page.goto(`./#/venda/${sale.id}`);
@@ -124,9 +125,25 @@ test.describe('Visitante sem login', () => {
       await expect(page.getByRole('link', { name: 'Google Agenda' })).toHaveAttribute('href', /calendar\.google\.com.*dates=\d{8}T\d{6}Z/);
       await page.getByRole('button', { name: 'Cancelar' }).click();
     }
-    await page.getByRole('button', { name: 'Falar no WhatsApp' }).click();
+    await expect(page.locator('#items-title')).not.toBeEmpty();
+    const interest = page.getByRole('button', { name: 'Tenho interesse' }).first();
+    test.skip(!(await interest.count()), 'a venda não tem itens disponíveis');
+    await interest.click();
     await expect(page).toHaveURL(/#\/entrar/);
-    await expect(page.getByText('Entre para falar com o vendedor')).toBeVisible();
+    await expect(page.getByText('Entre para conversar com o vendedor')).toBeVisible();
+  });
+
+  test('chat pede login e o menu mostra entrar, minhas vendas e favoritas', async ({ page }) => {
+    await page.goto('./');
+    const nav = page.getByRole('navigation', { name: 'Navegação principal' });
+    await expect(nav.getByRole('link', { name: 'Chat' })).toBeVisible();
+    await nav.getByRole('link', { name: 'Menu' }).click();
+    await expect(page).toHaveURL(/#\/menu/);
+    await expect(page.getByRole('link', { name: 'Entrar' }).last()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Minhas vendas' })).toHaveAttribute('href', '#/minhas');
+    await expect(page.getByRole('link', { name: 'Favoritas' })).toHaveAttribute('href', '#/minhas?aba=favoritas');
+    await nav.getByRole('link', { name: 'Chat' }).click();
+    await expect(page.getByText('Entre para ver suas conversas')).toBeVisible();
   });
 
   test('foto do item abre a galeria', async ({ page, request }) => {

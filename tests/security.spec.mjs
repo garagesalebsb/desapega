@@ -38,6 +38,17 @@ test.describe('Banco: visitante sem login', () => {
     expect(ai.ok()).toBe(false);
   });
 
+  test('não lê conversas nem mensagens, e não abre conversa sem login', async ({ request }) => {
+    for (const table of ['conversations', 'messages']) {
+      const res = await request.get(rest(`${table}?select=*`), { headers });
+      if (res.ok()) expect(await res.json(), table).toEqual([]);
+    }
+    expect((await request.post(rest('messages'), { headers, data: { conversation_id: UUID, body: 'oi' } })).ok()).toBe(false);
+    expect((await rpc(request, 'start_conversation', { p_item: UUID })).ok()).toBe(false);
+    expect((await rpc(request, 'my_conversations')).ok()).toBe(false);
+    expect((await rpc(request, 'chat_unread_count')).ok()).toBe(false);
+  });
+
   test('não lê nem cria notificações', async ({ request }) => {
     const res = await request.get(rest('notifications?select=*'), { headers });
     if (res.ok()) expect(await res.json()).toEqual([]);

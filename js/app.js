@@ -26,6 +26,7 @@ const state = {
   favorites: new Set(),
   requireVerification: false,
   unread: 0,
+  chatUnread: 0,
 };
 
 // ---------------------------------------------------------------------
@@ -130,6 +131,12 @@ const icon = {
   flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4m0 0h11l-2 4 2 4H5"/></svg>',
   tag: '<svg viewBox="0 0 24 24"><path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/></svg>',
   calendar: '<svg viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>',
+  chat: '<svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/></svg>',
+  send: '<svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/><path d="m11 13 9-9"/></svg>',
+  user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>',
+  out: '<svg viewBox="0 0 24 24"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/></svg>',
+  doc: '<svg viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z"/><path d="M14 3.5v4h4M9 12h6M9 16h6"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
   bell: '<svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>',
   pix: '<svg viewBox="0 0 24 24"><path d="M12 3.5 20.5 12 12 20.5 3.5 12z"/><path d="M8 12h8"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.2-3.8A8 8 0 1 1 8 19z"/><path d="M9 9.5c.5 2.5 2.5 4.5 5 5l1.2-1.2 2 1-.4 1.6c-4.4.4-9-4.2-8.6-8.6L9.8 7l1 2z"/></svg>',
@@ -176,7 +183,7 @@ async function setUser(user) {
   if (user) {
     const [p, c, f] = await Promise.all([
       sb.from('profiles').select('id,name').eq('id', user.id).maybeSingle(),
-      sb.from('contacts').select('whatsapp,phone_verified,pix_key,pix_name').eq('user_id', user.id).maybeSingle(),
+      sb.from('contacts').select('whatsapp,phone_verified,pix_key,pix_name,show_whatsapp').eq('user_id', user.id).maybeSingle(),
       sb.from('favorites').select('sale_id').eq('user_id', user.id),
     ]);
     state.profile = p.data;
@@ -186,6 +193,7 @@ async function setUser(user) {
   }
   updateHeader();
   refreshUnread(true);
+  listenChat();
 }
 
 // Número no sininho: atualiza ao trocar de tela (no máximo a cada 30 s), ao voltar para o app
@@ -194,13 +202,18 @@ let unreadCheckedAt = 0;
 async function refreshUnread(force = false) {
   if (!state.user) {
     state.unread = 0;
+    state.chatUnread = 0;
     return updateBadge();
   }
   if (!force && Date.now() - unreadCheckedAt < 30000) return;
   unreadCheckedAt = Date.now();
-  const { count, error } = await sb.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null);
-  if (error) return; // falha de rede ou banco ainda sem a central: só não mostra o número
-  state.unread = count || 0;
+  const [n, c] = await Promise.all([
+    sb.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null),
+    sb.rpc('chat_unread_count'),
+  ]);
+  // Falha de rede ou banco ainda sem a tabela: só não mostra o número.
+  if (!n.error) state.unread = n.count || 0;
+  if (!c.error) state.chatUnread = c.data || 0;
   updateBadge();
 }
 
@@ -209,6 +222,10 @@ function updateBadge() {
   badge.hidden = !state.unread;
   badge.textContent = state.unread > 9 ? '9+' : String(state.unread);
   document.getElementById('notif-link').setAttribute('aria-label', state.unread ? `Notificações: ${state.unread} nova(s)` : 'Notificações');
+  const chat = document.getElementById('chat-badge');
+  chat.hidden = !state.chatUnread;
+  chat.textContent = state.chatUnread > 9 ? '9+' : String(state.chatUnread);
+  document.getElementById('chat-tab').setAttribute('aria-label', state.chatUnread ? `Chat: ${state.chatUnread} conversa(s) com mensagem nova` : 'Chat');
 }
 
 document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && refreshUnread());
@@ -233,8 +250,9 @@ function requireLogin(next, msg = 'Entre para continuar.') {
   return false;
 }
 
+// O contato é pelo chat do app; o telefone só é exigido se a verificação por SMS estiver ligada.
 function canPublish() {
-  return !!state.contact?.whatsapp && (state.contact.phone_verified || !state.requireVerification);
+  return !state.requireVerification || !!state.contact?.phone_verified;
 }
 
 // ---------------------------------------------------------------------
@@ -251,6 +269,9 @@ const routes = [
   [/^\/entrar$/, viewLogin],
   [/^\/perfil$/, viewProfile],
   [/^\/notificacoes$/, viewNotifications],
+  [/^\/menu$/, viewMenu],
+  [/^\/chat$/, viewChats],
+  [/^\/chat\/([\w-]+)$/, viewConversation],
 ];
 
 // Saindo da página, as buscas em andamento são interrompidas: isso não é erro do app.
@@ -267,7 +288,9 @@ async function render() {
   const raw = location.hash.slice(1) || '/';
   const [path, qs] = raw.split('?');
   const params = new URLSearchParams(qs || '');
-  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === path));
+  // Conversa aberta acende "Chat"; minhas vendas, perfil e notificações ficam dentro do "Menu".
+  const tab = path.startsWith('/chat') ? '/chat' : ['/menu', '/minhas', '/perfil', '/notificacoes'].includes(path) ? '/menu' : path;
+  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === tab));
   const ctx = { params, path, alive: () => id === renderId };
   document.getElementById('notif-link').classList.toggle('active', path === '/notificacoes');
   if (path !== '/notificacoes') refreshUnread();
@@ -649,7 +672,7 @@ async function viewSale(ctx, id) {
       </div>
 
       <div class="actions">
-        ${isOwner ? '' : `<button class="btn whatsapp" data-act="contact">${icon.whatsapp}Falar no WhatsApp</button>`}
+        ${isOwner ? '' : `<button class="btn whatsapp" data-act="contact" id="wa-btn" hidden>${icon.whatsapp}Falar no WhatsApp</button>`}
         <a class="btn" href="${links.google}" target="_blank" rel="noopener">Rota no Google Maps</a>
         <a class="btn" href="${links.waze}" target="_blank" rel="noopener">Rota no Waze</a>
         <button class="btn" data-act="share">${icon.share}Compartilhar</button>
@@ -716,7 +739,7 @@ async function viewSale(ctx, id) {
   let hasPix = false;
   const buyerItemActions = (it) =>
     it.status === 'disponivel' && !ended
-      ? `<button class="btn small whatsapp" data-act="interest">${icon.whatsapp}Tenho interesse</button>
+      ? `<button class="btn small primary" data-act="interest">${icon.chat}Tenho interesse</button>
          ${hasPix && Number(it.price) > 0 ? `<button class="btn small pix" data-act="pix">${icon.pix}Pagar com Pix</button>` : ''}`
       : '';
 
@@ -757,6 +780,13 @@ async function viewSale(ctx, id) {
       }
     });
   }
+  // O botão do WhatsApp só aparece se o vendedor liberou o número no perfil.
+  if (!isOwner) {
+    sb.rpc('sale_has_whatsapp', { p_sale: sale.id }).then(({ data }) => {
+      if (data && ctx.alive()) document.getElementById('wa-btn').hidden = false;
+    });
+  }
+  const chat = (item, text) => openChat(sale, item, text); // cada conversa é sobre um item
 
   const openWhatsApp = async (text) => {
     if (!requireLogin(`/venda/${sale.id}`, 'Entre para falar com o vendedor.')) return;
@@ -768,10 +798,10 @@ async function viewSale(ctx, id) {
 
   const handleItemAction = async (act, item) => {
     if (act === 'interest') {
-      openWhatsApp(`Olá! Tenho interesse no item "${item.title}" (${brl(item.price)}) da sua venda "${sale.title}". Ainda está disponível?`);
+      chat(item, 'Olá! Tenho interesse. Ainda está disponível?');
     } else if (act === 'pix') {
       if (!requireLogin(`/venda/${sale.id}`, 'Entre para pagar com Pix.')) return;
-      openPix(sale, item, openWhatsApp);
+      openPix(sale, item, (text) => chat(item, text));
     } else if (act === 'edit-item') {
       openItemEditor(sale, item, () => {
         sortItems();
@@ -1124,7 +1154,7 @@ function openItemViewer(sale, item, { isOwner, ended, hasPix, onAction }) {
       ${item.description ? `<p class="item-desc">${esc(item.description).replace(/\n/g, '<br>')}</p>` : ''}
     </div>
     <div class="actions">
-      ${canBuy ? `<button class="btn whatsapp" data-a="interest">${icon.whatsapp}Tenho interesse</button>` : ''}
+      ${canBuy ? `<button class="btn primary" data-a="interest">${icon.chat}Tenho interesse: conversar</button>` : ''}
       ${canBuy && hasPix && Number(item.price) > 0 ? `<button class="btn pix" data-a="pix">${icon.pix}Pagar com Pix</button>` : ''}
       ${isOwner ? '<button class="btn" data-a="edit-item">Editar item</button>' : ''}
       <button class="btn" data-close>Fechar</button>
@@ -1274,7 +1304,7 @@ function openItemEditor(sale, item, done) {
 const contactError = (error) =>
   /limite/i.test(error.message) ? error.message : 'Não foi possível obter o contato do vendedor. Tente de novo.';
 
-async function openPix(sale, item, openWhatsApp) {
+async function openPix(sale, item, sendChat) {
   const { data, error } = await sb.rpc('get_sale_pix', { p_sale: sale.id });
   if (error) return toast(contactError(error), 'error', error);
   const pix = data?.[0];
@@ -1289,7 +1319,7 @@ async function openPix(sale, item, openWhatsApp) {
     <button class="btn primary" data-copy>Copiar código Pix (copia e cola)</button>
     <p class="hint">Recebedor: <strong>${esc(receiver)}</strong>. Confira o nome no app do banco antes de confirmar.</p>
     <div class="actions">
-      <button class="btn whatsapp" data-paid>${icon.whatsapp}Avisar o vendedor que paguei</button>
+      <button class="btn primary" data-paid>${icon.chat}Avisar o vendedor que paguei</button>
       <button class="btn" data-close>Fechar</button>
     </div>`, 'pix-modal');
   qrSvg(code)
@@ -1305,7 +1335,7 @@ async function openPix(sale, item, openWhatsApp) {
   };
   el.querySelector('[data-paid]').onclick = () => {
     close();
-    openWhatsApp(`Olá! Fiz o Pix de ${brl(item.price)} pelo item "${item.title}" da sua venda "${sale.title}". Podemos combinar a retirada?`);
+    sendChat(`Olá! Fiz o Pix de ${brl(item.price)} por este item. Podemos combinar a retirada?`);
   };
 }
 
@@ -1816,11 +1846,7 @@ async function viewSaleForm(ctx, id) {
   if (!requireLogin(ctx.path, 'Entre para anunciar uma venda. É grátis.')) return;
   if (!canPublish()) {
     sessionStorage.setItem('next', ctx.path);
-    navigate('/perfil?msg=' + encodeURIComponent(
-      state.requireVerification
-        ? 'Para anunciar, confirme seu telefone por SMS. Ele será o WhatsApp de contato.'
-        : 'Para anunciar, informe o WhatsApp onde os compradores vão falar com você.',
-    ));
+    navigate('/perfil?msg=' + encodeURIComponent('Para anunciar, confirme seu telefone por SMS.'));
     return;
   }
 
@@ -2052,6 +2078,257 @@ async function viewMine(ctx) {
 }
 
 // ---------------------------------------------------------------------
+// Chat: cada conversa é sobre um item, entre um comprador e o vendedor (supabase/007)
+// ---------------------------------------------------------------------
+async function openChat(sale, item, text = '') {
+  if (!requireLogin(`/venda/${sale.id}`, 'Entre para conversar com o vendedor.')) return;
+  const { data: id, error } = await sb.rpc('start_conversation', { p_item: item.id });
+  if (error) return toast(error.message, 'error', /Limite|encontrado|é seu/.test(error.message) ? null : error);
+  try {
+    if (text) sessionStorage.setItem(`chat-rascunho-${id}`, text);
+  } catch {}
+  navigate(`/chat/${id}`);
+}
+
+// Mensagens chegam na hora (Supabase Realtime; o banco só entrega as conversas da própria pessoa).
+let chatChannel = null;
+let openConversation = null; // id da conversa aberta na tela, se houver
+function listenChat() {
+  if (chatChannel) sb.removeChannel(chatChannel);
+  chatChannel = null;
+  if (!state.user) return;
+  chatChannel = sb
+    .channel(`chat-${state.user.id}`)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, ({ new: m }) => {
+      window.dispatchEvent(new CustomEvent('chat-message', { detail: m }));
+      if (m.sender_id === state.user?.id || m.conversation_id === openConversation) return;
+      refreshUnread(true);
+      if (location.hash === '#/chat') render();
+      else if (!location.hash.startsWith('#/chat')) toast('Nova mensagem no chat.');
+    })
+    .subscribe();
+}
+
+const STATUS_SHORT = { disponivel: 'Disponível', reservado: 'Reservado', vendido: 'Vendido' };
+const clock = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const thumb = (url) => (url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="chat-noimg">${icon.tag}</span>`);
+
+async function viewChats(ctx) {
+  if (!requireLogin('/chat', 'Entre para ver suas conversas.')) return;
+  $view.innerHTML = `
+    <div class="chat-page">
+      <h1>Conversas</h1>
+      <div id="chat-list" class="chat-list" aria-busy="true">${'<div class="chat-row"><span class="chat-thumb sk"></span><span class="sk notif-sk"></span></div>'.repeat(4)}</div>
+    </div>`;
+  const { data, error } = await sb.rpc('my_conversations');
+  if (error) throw error;
+  if (!ctx.alive()) return;
+  const list = document.getElementById('chat-list');
+  list.removeAttribute('aria-busy');
+  if (!data.length) {
+    list.innerHTML = `
+      <div class="empty">
+        <h2>Nenhuma conversa ainda</h2>
+        <p>Viu um item que gostou? Toque em <strong>Tenho interesse</strong> para conversar com o vendedor sobre ele.</p>
+        <a class="btn" href="#/">Ver vendas</a>
+      </div>`;
+    return;
+  }
+  list.innerHTML = data.map((c) => `
+    <a class="chat-row ${c.unread ? 'unread' : ''}" href="#/chat/${c.id}">
+      <span class="chat-thumb">${thumb(c.item_photo)}</span>
+      <span class="chat-text">
+        <strong>${esc(c.item_title)}</strong>
+        <small>${c.i_am_seller ? 'Você vende para' : 'Vendido por'} ${esc(c.other_name)}</small>
+        <span class="chat-last">${c.last_mine ? 'Você: ' : ''}${esc(c.last_message || '')}</span>
+      </span>
+      <time datetime="${esc(c.last_message_at)}">${timeAgo(c.last_message_at)}</time>
+    </a>`).join('');
+}
+
+async function viewConversation(ctx, id) {
+  if (!requireLogin(`/chat/${id}`, 'Entre para ver suas conversas.')) return;
+  $view.innerHTML = `<div class="chat-view"><div class="chat-head"><span class="chat-thumb sk"></span><span class="sk notif-sk"></span></div></div>`;
+  const [info, msgs] = await Promise.all([
+    sb.rpc('my_conversations', { p_conv: id }),
+    sb.from('messages').select('id,sender_id,body,created_at').eq('conversation_id', id).order('created_at').limit(500),
+  ]);
+  if (info.error) throw info.error;
+  if (msgs.error) throw msgs.error;
+  if (!ctx.alive()) return;
+  const c = info.data?.[0];
+  if (!c) {
+    $view.innerHTML = `<div class="empty"><h2>Conversa não encontrada</h2><a class="btn" href="#/chat">Ver conversas</a></div>`;
+    return;
+  }
+  document.title = `${c.item_title} — Chat — ${CONFIG.APP_NAME}`;
+  const messages = msgs.data;
+  let draft = '';
+  try {
+    draft = sessionStorage.getItem(`chat-rascunho-${id}`) || '';
+    sessionStorage.removeItem(`chat-rascunho-${id}`);
+  } catch {}
+
+  $view.innerHTML = `
+    <div class="chat-view">
+      <div class="chat-head">
+        <a href="#/chat" class="chat-back" aria-label="Voltar para as conversas">${icon.chevron}</a>
+        <a class="chat-item" href="${c.sale_id ? `#/venda/${c.sale_id}` : '#/chat'}">
+          <span class="chat-thumb">${thumb(c.item_photo)}</span>
+          <span class="chat-text">
+            <strong>${esc(c.item_title)}</strong>
+            <small>${c.item_price != null ? `${brl(c.item_price)} · ` : ''}${c.item_status ? STATUS_SHORT[c.item_status] : 'Item removido'} · ${c.i_am_seller ? 'comprador' : 'vendedor'}: ${esc(c.other_name)}</small>
+          </span>
+        </a>
+      </div>
+      ${c.i_am_seller && c.item_id ? `
+        <div class="status-toggle chat-status" role="group" aria-label="Situação do item">
+          ${Object.entries(STATUS_LABEL).map(([k, v]) => `<button data-status="${k}" class="${c.item_status === k ? 'on' : ''}">${v}</button>`).join('')}
+        </div>` : ''}
+      <p class="hint chat-safety">Combine a retirada em lugar movimentado e só pague depois de ver o item. Nunca passe senhas ou códigos recebidos por SMS.</p>
+      <div class="chat-msgs" id="chat-msgs" aria-live="polite"></div>
+      <form class="chat-input" id="chat-form">
+        <textarea name="body" rows="1" maxlength="2000" placeholder="Escreva uma mensagem" aria-label="Mensagem" required>${esc(draft)}</textarea>
+        <button class="btn primary" aria-label="Enviar">${icon.send}</button>
+      </form>
+      <div class="report-links"><button class="link" data-report>${icon.flag}Denunciar conversa</button></div>
+    </div>`;
+
+  const box = document.getElementById('chat-msgs');
+  const dayLabel = (iso) => {
+    const d = isoDate(new Date(iso));
+    if (d === today()) return 'Hoje';
+    if (d === isoDate(addDays(new Date(), -1))) return 'Ontem';
+    return new Date(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
+  };
+  const paint = () => {
+    let lastDay = '';
+    box.innerHTML = messages.length
+      ? messages.map((m) => {
+          const day = dayLabel(m.created_at);
+          const sep = day !== lastDay ? `<div class="chat-day">${day}</div>` : '';
+          lastDay = day;
+          return `${sep}<div class="msg ${m.sender_id === state.user.id ? 'mine' : ''} ${m.pending ? 'pending' : ''}">
+            <p>${esc(m.body).replace(/\n/g, '<br>')}</p><time>${m.pending ? 'enviando…' : clock(m.created_at)}</time></div>`;
+        }).join('')
+      : `<p class="hint chat-empty">${c.i_am_seller ? 'Nenhuma mensagem ainda.' : 'Mande uma mensagem para o vendedor sobre este item.'}</p>`;
+    window.scrollTo(0, document.body.scrollHeight);
+  };
+  paint();
+  sb.rpc('mark_conversation_read', { p_conv: id }).then(() => refreshUnread(true));
+
+  // Mensagens novas desta conversa (da outra pessoa ou de outro aparelho meu).
+  openConversation = id;
+  const onMessage = (e) => {
+    const m = e.detail;
+    if (m.conversation_id !== id || messages.some((x) => x.id === m.id)) return;
+    messages.push(m);
+    paint();
+    if (m.sender_id !== state.user.id) sb.rpc('mark_conversation_read', { p_conv: id });
+  };
+  window.addEventListener('chat-message', onMessage);
+  cleanup.push(() => {
+    window.removeEventListener('chat-message', onMessage);
+    openConversation = null;
+  });
+
+  const form = document.getElementById('chat-form');
+  const input = form.body;
+  const grow = () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+  };
+  input.addEventListener('input', grow);
+  grow();
+  // Enter envia no computador; no celular o Enter quebra a linha e envia pelo botão.
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && matchMedia('(pointer: fine)').matches) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = input.value.trim();
+    if (!body) return;
+    const temp = { id: `tmp-${Date.now()}`, sender_id: state.user.id, body, created_at: new Date().toISOString(), pending: true };
+    messages.push(temp);
+    input.value = '';
+    grow();
+    paint();
+    const { data, error } = await sb.from('messages').insert({ conversation_id: id, body }).select('id,sender_id,body,created_at').single();
+    const i = messages.indexOf(temp);
+    if (error) {
+      messages.splice(i, 1);
+      input.value = body;
+      grow();
+      paint();
+      return toast(/Muitas mensagens/.test(error.message) ? error.message : 'Não foi possível enviar. Tente de novo.', 'error', /Muitas/.test(error.message) ? null : error);
+    }
+    if (messages.some((x) => x.id === data.id)) messages.splice(i, 1); // o tempo real chegou antes
+    else messages[i] = data;
+    paint();
+  });
+  if (draft) input.focus();
+
+  // Vendedor muda a situação do item direto da conversa.
+  $view.querySelector('.chat-status')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-status]');
+    if (!btn) return;
+    const { error } = await sb.from('items').update({ status: btn.dataset.status }).eq('id', c.item_id);
+    if (error) return toast('Não foi possível atualizar o item.', 'error', error);
+    c.item_status = btn.dataset.status;
+    $view.querySelectorAll('.chat-status [data-status]').forEach((b) => b.classList.toggle('on', b === btn));
+    $view.querySelector('.chat-item small').innerHTML =
+      `${c.item_price != null ? `${brl(c.item_price)} · ` : ''}${STATUS_SHORT[c.item_status]} · comprador: ${esc(c.other_name)}`;
+    toast(`Item marcado como ${STATUS_SHORT[c.item_status].toLowerCase()}.`);
+  });
+
+  $view.querySelector('[data-report]').onclick = () =>
+    openReport({ sale_id: c.sale_id, reported_user_id: c.other_id }, c.i_am_seller ? 'comprador' : 'vendedor');
+}
+
+// ---------------------------------------------------------------------
+// Menu: dados da conta, minhas vendas e favoritas, notificações, páginas legais
+// ---------------------------------------------------------------------
+async function viewMenu() {
+  const row = (href, ic, label, extra = '') =>
+    `<a class="menu-row" href="${href}"><span class="menu-icon">${ic}</span><span>${label}</span>${extra}<span class="menu-go">${icon.chevron}</span></a>`;
+  const u = state.user;
+  $view.innerHTML = `
+    <div class="menu-page">
+      ${u ? `
+        <a class="menu-user" href="#/perfil">
+          <span class="menu-avatar">${esc((state.profile?.name || u.email || '?').trim()[0].toUpperCase())}</span>
+          <span><strong>${esc(state.profile?.name || 'Seu perfil')}</strong><small>${esc(u.email || '')}</small></span>
+          <span class="menu-go">${icon.chevron}</span>
+        </a>` : `
+        <div class="menu-user guest">
+          <span><strong>Entre na sua conta</strong><small>Para anunciar, salvar vendas e conversar com vendedores.</small></span>
+          <a class="btn primary" href="#/entrar">Entrar</a>
+        </div>`}
+      <nav class="menu-list" aria-label="Menu">
+        ${row('#/minhas', icon.tag, 'Minhas vendas')}
+        ${row('#/minhas?aba=favoritas', icon.heart, 'Favoritas')}
+        ${row('#/chat', icon.chat, 'Conversas', state.chatUnread ? `<span class="menu-count">${state.chatUnread}</span>` : '')}
+        ${row('#/notificacoes', icon.bell, 'Notificações', state.unread ? `<span class="menu-count">${state.unread}</span>` : '')}
+        ${row('#/perfil', icon.user, 'Dados da conta, WhatsApp e Pix')}
+        ${row('#/anunciar', icon.camera, 'Anunciar uma venda')}
+      </nav>
+      <nav class="menu-list" aria-label="Informações">
+        ${row('privacidade.html', icon.doc, 'Política de Privacidade')}
+        ${row('termos.html', icon.doc, 'Termos de Uso')}
+      </nav>
+      ${u ? `<button class="btn big menu-logout" id="menu-logout">${icon.out}Sair da conta</button>` : ''}
+    </div>`;
+  document.getElementById('menu-logout')?.addEventListener('click', async () => {
+    await disableReminders(sb).catch(() => {});
+    await sb.auth.signOut();
+    navigate('/');
+  });
+}
+
+// ---------------------------------------------------------------------
 // Central de notificações (os avisos são criados pelo banco: supabase/005)
 // ---------------------------------------------------------------------
 const CHANGES = { data: 'a data', 'horário': 'o horário', 'endereço': 'o endereço' };
@@ -2213,11 +2490,16 @@ async function viewProfile(ctx) {
       <label>Nome que aparece nas vendas
         <input name="name" required maxlength="80" value="${esc(state.profile?.name)}">
       </label>
-      <label>WhatsApp com DDD
-        <input name="whatsapp" type="tel" inputmode="tel" placeholder="(61) 99999-9999" value="${esc(fmtPhone(c.whatsapp))}">
-      </label>
-      <p class="hint">Só aparece para compradores logados, quando tocam em "Falar no WhatsApp".
-        ${c.whatsapp ? (c.phone_verified ? '<span class="ok">Telefone verificado ✓</span>' : state.requireVerification ? '<span class="warn">Telefone ainda não verificado</span>' : '') : ''}</p>
+      <fieldset class="pix-box">
+        <legend>${icon.whatsapp} WhatsApp (opcional)</legend>
+        <p class="hint">Os compradores falam com você pelo <strong>chat do app</strong>, sem ver seu número. Se preferir, libere também o WhatsApp.</p>
+        <label>WhatsApp com DDD
+          <input name="whatsapp" type="tel" inputmode="tel" placeholder="(61) 99999-9999" value="${esc(fmtPhone(c.whatsapp))}">
+        </label>
+        <label class="check"><input type="checkbox" name="show_whatsapp" ${c.show_whatsapp ? 'checked' : ''}> Mostrar o botão do WhatsApp nas minhas vendas</label>
+        <p class="hint">Desmarcado, seu número fica guardado e ninguém vê. Marcado, aparece para compradores logados que tocarem em "Falar no WhatsApp".
+          ${c.whatsapp ? (c.phone_verified ? '<span class="ok">Telefone verificado ✓</span>' : state.requireVerification ? '<span class="warn">Telefone ainda não verificado</span>' : '') : ''}</p>
+      </fieldset>
       <div id="otp-box"></div>
 
       <fieldset class="pix-box">
@@ -2276,6 +2558,8 @@ async function viewProfile(ctx) {
     const raw = form.whatsapp.value.trim();
     const phone = raw ? normalizePhone(raw) : null;
     if (raw && !phone) return toast('Informe um celular válido com DDD.', 'error');
+    const showWhatsapp = form.show_whatsapp.checked;
+    if (showWhatsapp && !phone) return toast('Para mostrar o botão do WhatsApp, informe o número.', 'error');
 
     const pixRaw = form.pix_key.value.trim();
     const pix_key = pixRaw ? normalizePixKey(form.pix_type.value, pixRaw) : null;
@@ -2284,6 +2568,10 @@ async function viewProfile(ctx) {
 
     const p1 = await sb.from('profiles').update({ name: form.name.value.trim() }).eq('id', state.user.id);
     if (p1.error) return toast(p1.error.message, 'error', p1.error);
+    if (showWhatsapp !== !!c.show_whatsapp) {
+      const sw = await sb.from('contacts').update({ show_whatsapp: showWhatsapp }).eq('user_id', state.user.id);
+      if (sw.error) return toast(`Erro ao salvar a opção do WhatsApp: ${sw.error.message}`, 'error', sw.error);
+    }
     if (pix_key !== (c.pix_key || null) || pix_name !== (c.pix_name || null)) {
       const px = await sb.from('contacts').update({ pix_key, pix_name }).eq('user_id', state.user.id);
       if (px.error) return toast(`Erro ao salvar o Pix: ${px.error.message}`, 'error', px.error);
