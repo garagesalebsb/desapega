@@ -112,6 +112,21 @@ test.describe('Visitante sem login', () => {
     await expect(page.locator('.modal.viewer')).toHaveCount(0);
   });
 
+  test('cartaz da venda tem título, data, QR Code e botões de imprimir e WhatsApp', async ({ page, request }) => {
+    const sale = await firstSale(request);
+    test.skip(!sale, 'nenhuma venda publicada para testar');
+    await page.goto(`./#/venda/${sale.id}/cartaz`);
+    await expect(page.locator('.poster h1')).toHaveText(sale.title);
+    await expect(page.locator('.poster-when')).toContainText(/\d+h às \d+h/);
+    await expect(page.locator('#poster-qr svg')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Imprimir ou salvar PDF' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Imagem para WhatsApp/ })).toBeVisible();
+    await expect(page.locator('.tabbar')).toBeVisible(); // na tela o menu continua; só some na impressão
+    await page.emulateMedia({ media: 'print' });
+    await expect(page.locator('.tabbar')).toBeHidden();
+    await expect(page.locator('.poster-tools')).toBeHidden();
+  });
+
   test('venda inexistente mostra aviso', async ({ page }) => {
     await page.goto(`./#/venda/${UUID_INEXISTENTE}`);
     await expect(page.getByRole('heading', { name: 'Venda não encontrada' })).toBeVisible();

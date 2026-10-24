@@ -4,7 +4,7 @@ import { REGIONS, DF_CENTER, regionByName, SALE_TYPES, CATEGORIES, REPORT_REASON
 import { maybeSuggestInstall } from './install.js';
 import { stripMetadata } from './metadata.js';
 import { initMonitoring, reportError } from './monitoring.js';
-import { PIX_TYPES, guessPixType, normalizePixKey, formatPixKey, pixPayload, qrSvg } from './pix.js';
+import { PIX_TYPES, guessPixType, normalizePixKey, formatPixKey, pixPayload, qrSvg, qrImage } from './pix.js';
 
 const $view = document.getElementById('view');
 const configured = !CONFIG.SUPABASE_URL.includes('SEU-PROJETO');
@@ -49,7 +49,12 @@ function fmtDay(s) {
   if (s === isoDate(addDays(new Date(), 1))) return 'Amanhã';
   return d.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
 }
-const fmtTime = (t) => (t ? t.slice(0, 5).replace(':00', 'h').replace(':', 'h') : '');
+// "08:00" → "8h", "14:30" → "14h30"
+const fmtTime = (t) => {
+  if (!t) return '';
+  const [h, m] = t.split(':');
+  return `${Number(h)}h${m === '00' ? '' : m}`;
+};
 function fmtWhen(s) {
   const days = s.starts_on === s.ends_on ? fmtDay(s.starts_on) : `${fmtDay(s.starts_on)} a ${fmtDay(s.ends_on)}`;
   return `${days} · ${fmtTime(s.start_time)}–${fmtTime(s.end_time)}`;
@@ -206,6 +211,7 @@ const routes = [
   [/^\/anunciar$/, viewSaleForm],
   [/^\/venda\/([\w-]+)$/, viewSale],
   [/^\/venda\/([\w-]+)\/editar$/, viewSaleForm],
+  [/^\/venda\/([\w-]+)\/cartaz$/, viewPoster],
   [/^\/minhas$/, viewMine],
   [/^\/entrar$/, viewLogin],
   [/^\/perfil$/, viewProfile],
@@ -287,12 +293,20 @@ function itemPhoto(it) {
 }
 
 // Apaga do Storage fotos do próprio usuário que deixaram de ser usadas (melhor esforço).
-function removeStoredPhotos(urls) {
+// Uma venda duplicada reaproveita as fotos da original: só apaga a foto que ninguém mais usa.
+// Deve ser chamada depois de a venda/item já ter sido alterado no banco.
+async function removeStoredPhotos(urls) {
   const marker = '/object/public/photos/';
-  const paths = urls
-    .map((u) => (u && u.includes(marker) ? decodeURIComponent(u.split(marker)[1]) : null))
-    .filter((p) => p && p.startsWith(`${state.user.id}/`));
-  if (paths.length) sb.storage.from('photos').remove(paths).catch(() => {});
+  const own = [...new Set(urls)].filter((u) => u && u.includes(marker) && decodeURIComponent(u.split(marker)[1]).startsWith(`${state.user.id}/`));
+  if (!own.length) return;
+  const [items, sales] = await Promise.all([
+    sb.from('items').select('photo_url,photos').eq('owner_id', state.user.id),
+    sb.from('sales').select('cover_url').eq('owner_id', state.user.id),
+  ]);
+  if (items.error || sales.error) return; // na dúvida, não apaga
+  const inUse = new Set([...items.data.flatMap((i) => [i.photo_url, ...(i.photos || [])]), ...sales.data.map((s) => s.cover_url)]);
+  const paths = own.filter((u) => !inUse.has(u)).map((u) => decodeURIComponent(u.split(marker)[1]));
+  if (paths.length) await sb.storage.from('photos').remove(paths).catch(() => {});
 }
 
 const STATUS_LABEL = { disponivel: 'Disponível', reservado: 'Reservado', vendido: 'Vendido' };
@@ -525,8 +539,11 @@ async function viewSale(ctx, id) {
 
       ${isOwner ? `
         <div class="owner-bar">
-          <strong>Esta venda é sua.</strong>
+          <strong>${ended ? 'Esta venda já acabou. Vai fazer outra? Duplique e aproveite os itens que sobraram.' : 'Esta venda é sua.'}</strong>
+          ${ended ? '<button class="btn small primary" data-act="duplicate">Duplicar para nova data</button>' : ''}
+          <a class="btn small" href="#/venda/${sale.id}/cartaz">Cartaz com QR Code</a>
           <a class="btn small" href="#/venda/${sale.id}/editar">Editar venda</a>
+          ${ended ? '' : '<button class="btn small" data-act="duplicate">Duplicar</button>'}
           <button class="btn small danger" data-act="delete-sale">Excluir</button>
         </div>` : ''}
 
@@ -537,6 +554,7 @@ async function viewSale(ctx, id) {
         <section class="quick-add">
           <h2>Cadastrar itens</h2>
           ${ctx.params.has('novo') ? '<p class="hint">Venda criada! Agora fotografe e cadastre os itens. Depois é só compartilhar o link.</p>' : ''}
+          ${ctx.params.has('duplicada') ? '<p class="hint">Venda duplicada! Confira os itens, remova o que não vai levar e cadastre as novidades.</p>' : ''}
           <form id="item-form">
             <label class="photo-pick">
               <input type="file" name="photo" accept="image/*" multiple hidden>
@@ -688,6 +706,8 @@ async function viewSale(ctx, id) {
       removeStoredPhotos([sale.cover_url, ...sale.items.flatMap(itemPhotos)]);
       toast('Venda excluída.');
       navigate('/minhas');
+    } else if (act === 'duplicate') {
+      openDuplicate(sale);
     } else if (act === 'report-sale' || act === 'report-user') {
       if (!requireLogin(`/venda/${sale.id}`, 'Entre para enviar uma denúncia.')) return;
       openReport(act === 'report-sale' ? { sale_id: sale.id } : { sale_id: sale.id, reported_user_id: sale.owner_id }, act === 'report-sale' ? 'anúncio' : 'vendedor');
@@ -934,6 +954,252 @@ async function openPix(sale, item, openWhatsApp) {
     close();
     openWhatsApp(`Olá! Fiz o Pix de ${brl(item.price)} pelo item "${item.title}" da sua venda "${sale.title}". Podemos combinar a retirada?`);
   };
+}
+
+// ---------------------------------------------------------------------
+// Duplicar venda: mesma venda numa nova data, com os itens que sobraram
+// ---------------------------------------------------------------------
+const daysBetween = (a, b) => Math.round((parseDate(b) - parseDate(a)) / 864e5);
+
+// Próxima data no mesmo dia da semana, depois de hoje e depois do fim da venda original.
+function nextDateFor(sale) {
+  const limit = sale.ends_on > today() ? sale.ends_on : today();
+  let d = parseDate(sale.starts_on);
+  while (isoDate(d) <= limit) d = addDays(d, 7);
+  return isoDate(d);
+}
+
+function openDuplicate(sale) {
+  const start = nextDateFor(sale);
+  const end = isoDate(addDays(parseDate(start), daysBetween(sale.starts_on, sale.ends_on)));
+  const leftovers = sale.items.filter((i) => i.status !== 'vendido');
+  const reserved = leftovers.filter((i) => i.status === 'reservado').length;
+  const { el, close } = openModal(`
+    <h2>Duplicar venda</h2>
+    <p class="hint">Cria uma nova venda com o mesmo local, horário, descrição e foto de capa. A venda atual não muda.</p>
+    <form>
+      <div class="row">
+        <label>Data de início<input type="date" name="starts_on" required value="${start}" min="${today()}"></label>
+        <label>Último dia<input type="date" name="ends_on" required value="${end}" min="${today()}"></label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="copy" ${leftovers.length ? 'checked' : 'disabled'}>
+        ${leftovers.length
+          ? `Levar os ${leftovers.length} ${leftovers.length === 1 ? 'item que não foi vendido' : 'itens que não foram vendidos'}`
+          : 'Nenhum item para levar (todos foram vendidos)'}
+      </label>
+      ${reserved ? `<p class="hint">${reserved === 1 ? 'O item reservado volta' : `Os ${reserved} itens reservados voltam`} como disponível.</p>` : ''}
+      <div class="actions">
+        <button class="btn primary">Duplicar venda</button>
+        <button type="button" class="btn" data-close>Cancelar</button>
+      </div>
+    </form>`);
+  const form = el.querySelector('form');
+  form.starts_on.addEventListener('change', () => {
+    if (form.ends_on.value < form.starts_on.value) form.ends_on.value = form.starts_on.value;
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (form.ends_on.value < form.starts_on.value) return toast('O último dia não pode ser antes do início.', 'error');
+    const btn = form.querySelector('button.primary');
+    btn.disabled = true;
+    btn.textContent = 'Duplicando…';
+    try {
+      const fields = ['title', 'description', 'type', 'region', 'address', 'reference', 'lat', 'lng', 'start_time', 'end_time', 'cover_url'];
+      const row = Object.fromEntries(fields.map((f) => [f, sale[f]]));
+      const { data: copy, error } = await sb
+        .from('sales')
+        .insert({ ...row, starts_on: form.starts_on.value, ends_on: form.ends_on.value })
+        .select('id')
+        .single();
+      if (error) throw new Error(`Erro ao duplicar a venda: ${error.message}`);
+      if (form.copy.checked && leftovers.length) {
+        const items = leftovers.map((i) => ({
+          sale_id: copy.id,
+          title: i.title,
+          price: i.price,
+          category: i.category,
+          photo_url: i.photo_url,
+          photos: itemPhotos(i),
+        }));
+        const res = await sb.from('items').insert(items);
+        if (res.error) throw new Error(`A venda foi duplicada, mas os itens não: ${res.error.message}`);
+      }
+      close();
+      toast('Venda duplicada!');
+      navigate(`/venda/${copy.id}?duplicada=1`);
+    } catch (err) {
+      toast(err.message, 'error', err);
+      btn.disabled = false;
+      btn.textContent = 'Duplicar venda';
+    }
+  });
+}
+
+// ---------------------------------------------------------------------
+// Cartaz para imprimir (A4) e imagem para WhatsApp, com QR Code da venda
+// ---------------------------------------------------------------------
+function longDay(s) {
+  const d = parseDate(s).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  return d.charAt(0).toUpperCase() + d.slice(1);
+}
+function longWhen(s) {
+  const hours = `${fmtTime(s.start_time)} às ${fmtTime(s.end_time)}`;
+  return s.starts_on === s.ends_on ? `${longDay(s.starts_on)} · ${hours}` : `${longDay(s.starts_on)} a ${longDay(s.ends_on).toLowerCase()} · ${hours}`;
+}
+
+async function viewPoster(ctx, id) {
+  $view.innerHTML = '<div class="loading">Preparando o cartaz…</div>';
+  const { data: sale, error } = await sb.from('sales').select('*, items(title,price,photo_url,photos,status)').eq('id', id).maybeSingle();
+  if (!ctx.alive()) return;
+  if (error) throw error;
+  if (!sale) {
+    $view.innerHTML = `<div class="empty"><h2>Venda não encontrada</h2><a class="btn" href="#/">Voltar ao início</a></div>`;
+    return;
+  }
+  document.body.classList.add('poster-mode');
+  cleanup.push(() => document.body.classList.remove('poster-mode'));
+  document.title = `Cartaz — ${sale.title}`;
+
+  const url = saleUrl(sale.id);
+  const site = BASE_URL.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const where = [sale.address, sale.region].filter(Boolean).join(' · ');
+  const highlights = sale.items.filter((i) => i.status !== 'vendido' && itemPhotos(i).length).slice(0, 6);
+  const t = SALE_TYPES[sale.type];
+
+  $view.innerHTML = `
+    <div class="poster-tools no-print">
+      <a class="btn small" href="#/venda/${sale.id}">← Voltar para a venda</a>
+      ${highlights.length ? '<label class="check"><input type="checkbox" id="show-photos" checked> Mostrar fotos dos itens</label>' : ''}
+      <button class="btn primary" id="print">Imprimir ou salvar PDF</button>
+      <button class="btn whatsapp" id="as-image">${icon.whatsapp}Imagem para WhatsApp</button>
+      <p class="hint">Cole o cartaz no elevador, na portaria ou no mural. Quem apontar a câmera do celular para o QR Code abre a venda com todos os itens.</p>
+    </div>
+    <article class="poster poster-${sale.type} ${highlights.length ? '' : 'poster-no-items'}" id="poster">
+      <header class="poster-band">${esc(t.label)}</header>
+      <div class="poster-body">
+        <h1>${esc(sale.title)}</h1>
+        <p class="poster-when">${esc(longWhen(sale))}</p>
+        ${where ? `<p class="poster-where">${esc(where)}</p>` : ''}
+        ${sale.reference ? `<p class="poster-ref">${esc(sale.reference)}</p>` : ''}
+        ${highlights.length ? `
+          <div class="poster-items" id="poster-items">
+            ${highlights.map((i) => `<figure><img src="${esc(itemPhotos(i)[0])}" alt=""><figcaption>${brl(i.price)}</figcaption></figure>`).join('')}
+          </div>` : ''}
+        <div class="poster-qr">
+          <div class="qr" id="poster-qr"></div>
+          <div>
+            <strong>Veja todos os itens e preços</strong>
+            <p>Aponte a câmera do celular para o código</p>
+            <p class="poster-url">${esc(site)}</p>
+          </div>
+        </div>
+      </div>
+      <footer>${esc(CONFIG.APP_NAME)} · vendas de garagem, bazares e mudanças em Brasília</footer>
+    </article>`;
+
+  qrSvg(url)
+    .then((svg) => (document.getElementById('poster-qr').innerHTML = svg))
+    .catch((err) => toast(err.message, 'error', err));
+  document.getElementById('show-photos')?.addEventListener('change', (e) => {
+    document.getElementById('poster-items').hidden = !e.target.checked;
+    document.getElementById('poster').classList.toggle('poster-no-items', !e.target.checked);
+  });
+  document.getElementById('print').onclick = () => window.print();
+
+  // A imagem é preparada já ao abrir: o navegador só permite compartilhar logo após o toque.
+  const image = buildPosterImage(sale, url, where);
+  image.catch((err) => reportError(err, 'cartaz imagem'));
+  document.getElementById('as-image').onclick = async () => {
+    let file;
+    try {
+      file = await image;
+    } catch {
+      return toast('Não foi possível gerar a imagem do cartaz.', 'error');
+    }
+    const text = `${SALE_TYPES[sale.type].label}: ${sale.title}\n${longWhen(sale)}${where ? `\n${where}` : ''}\nVeja os itens: ${url}`;
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], text });
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return; // a pessoa fechou o compartilhamento
+      }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file);
+    a.download = file.name;
+    a.click();
+    toast('Imagem salva. Envie no WhatsApp junto com o link da venda.');
+  };
+}
+
+const TYPE_COLORS = { garagem: '#2b8a3e', mudanca: '#d9480f', bazar: '#6741d9' };
+
+function wrapText(g, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = String(text).split(/\s+/);
+  let line = '';
+  let lines = 0;
+  for (let i = 0; i < words.length; i++) {
+    const test = line ? `${line} ${words[i]}` : words[i];
+    if (g.measureText(test).width > maxWidth && line) {
+      if (++lines === maxLines) {
+        g.fillText(`${line}…`, x, y);
+        return y + lineHeight;
+      }
+      g.fillText(line, x, y);
+      y += lineHeight;
+      line = words[i];
+    } else line = test;
+  }
+  if (line) g.fillText(line, x, y);
+  return y + lineHeight;
+}
+
+// Imagem 1080x1350 (formato de post/status), para mandar nos grupos de WhatsApp.
+async function buildPosterImage(sale, url, where) {
+  const W = 1080, H = 1350, P = 80;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  const font = (w, s) => `${w} ${s}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, W, H);
+  g.fillStyle = TYPE_COLORS[sale.type];
+  g.fillRect(0, 0, W, 150);
+  g.fillStyle = '#ffffff';
+  g.font = font(800, 56);
+  g.textBaseline = 'middle';
+  g.fillText(SALE_TYPES[sale.type].label.toUpperCase(), P, 78);
+
+  g.textBaseline = 'alphabetic';
+  g.fillStyle = '#1d2321';
+  g.font = font(800, 76);
+  let y = wrapText(g, sale.title, P, 290, W - 2 * P, 88, 3);
+  g.font = font(700, 46);
+  g.fillStyle = TYPE_COLORS[sale.type];
+  y = wrapText(g, longWhen(sale), P, y + 30, W - 2 * P, 58, 2);
+  g.fillStyle = '#3d4643';
+  g.font = font(500, 40);
+  if (where) y = wrapText(g, where, P, y + 10, W - 2 * P, 52, 2);
+  if (sale.reference) y = wrapText(g, sale.reference, P, y, W - 2 * P, 52, 2);
+
+  const qr = await qrImage(url, 10);
+  const size = 420;
+  const qx = (W - size) / 2;
+  const qy = Math.max(y + 40, H - size - 230);
+  g.drawImage(qr, qx, qy, size, size);
+  g.fillStyle = '#1d2321';
+  g.font = font(700, 40);
+  g.textAlign = 'center';
+  g.fillText('Veja todos os itens e preços', W / 2, qy + size + 70);
+  g.fillStyle = '#65706c';
+  g.font = font(500, 32);
+  g.fillText(`${CONFIG.APP_NAME} · aponte a câmera ou toque no link`, W / 2, qy + size + 120);
+
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+  return new File([blob], 'cartaz-venda.png', { type: 'image/png' });
 }
 
 async function toggleFavorite(saleId) {

@@ -27,7 +27,10 @@ const TYPES = { garagem: 'Venda de garagem', mudanca: 'Venda de mudança', bazar
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const day = (s) =>
   new Date(`${s}T12:00:00-03:00`).toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'America/Sao_Paulo' }).replace(/\./g, '');
-const time = (t) => t.slice(0, 5).replace(':00', 'h').replace(':', 'h');
+const time = (t) => {
+  const [h, m] = t.split(':');
+  return `${Number(h)}h${m === '00' ? '' : m}`;
+};
 
 // Vendas que terminaram há até 7 dias continuam com página (links antigos não quebram de imediato).
 const since = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);

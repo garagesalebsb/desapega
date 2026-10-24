@@ -95,6 +95,18 @@ function loadQrLib() {
   return qrLib;
 }
 
+// QR como imagem (para desenhar em canvas, ex.: cartaz para WhatsApp).
+export async function qrImage(text, cellSize = 12) {
+  const qrcode = await loadQrLib();
+  const qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  const img = new Image();
+  img.src = qr.createDataURL(cellSize, cellSize * 2);
+  await img.decode();
+  return img;
+}
+
 export async function qrSvg(text) {
   const qrcode = await loadQrLib();
   const qr = qrcode(0, 'M');
