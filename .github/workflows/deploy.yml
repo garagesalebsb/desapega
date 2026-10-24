@@ -15,19 +15,20 @@ permissions:
   id-token: write
 
 jobs:
-  # Mudança de código: testa no Android, no iPhone, as regras do banco e o código do Pix/fotos.
+  # Mudança de código: testa no Android, no iPhone, as regras do banco e o código do Pix/fotos/agenda.
+  # Roda na imagem oficial do Playwright, que já traz os navegadores (sem instalar nada na hora).
   test:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.48.2-jammy
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install
-      - run: npx playwright install --with-deps chromium webkit
+      - run: npm install --no-audit --no-fund
       - run: npx playwright test
+        env:
+          HOME: /root
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -42,6 +43,7 @@ jobs:
       always() && github.event_name != 'pull_request' &&
       (needs.test.result == 'success' || needs.test.result == 'skipped')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     concurrency:
       group: pages
       cancel-in-progress: true

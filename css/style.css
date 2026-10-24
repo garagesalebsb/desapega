@@ -285,6 +285,40 @@ legend { font-weight: 600; font-size: .92rem; margin-bottom: 6px; }
 .danger-zone summary { cursor: pointer; color: var(--danger); font-weight: 600; }
 .danger-zone[open] { display: flex; flex-direction: column; gap: 10px; }
 
+/* ---------- Comprador: situação, perto de mim, carregamento ---------- */
+.badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.badge.status-agora { background: #2f9e44; color: #fff; }
+.badge.status-agora::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #fff; margin-right: 5px; vertical-align: 1px; animation: pulse 1.6s ease-in-out infinite; }
+.badge.status-hoje { background: color-mix(in srgb, var(--mudanca) 16%, transparent); color: var(--mudanca); }
+.badge.status-amanha, .badge.status-breve { background: var(--line); color: var(--muted); }
+.live-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #2f9e44; margin-right: 8px; vertical-align: 1px; animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .live-dot, .badge.status-agora::before, .skeleton *, .sk { animation: none !important; } }
+.chip { cursor: pointer; font: inherit; font-size: .88rem; display: inline-flex; align-items: center; gap: 4px; }
+.chip-near:not(.on) { border-color: #1c7ed6; color: #1c7ed6; }
+.chip-near.on { background: #1c7ed6; border-color: #1c7ed6; color: #fff; }
+.me-dot span { display: block; width: 22px; height: 22px; border-radius: 50%; background: #1c7ed6; border: 4px solid #fff; box-shadow: 0 0 0 6px rgb(28 126 214 / .25), 0 2px 6px rgb(0 0 0 / .3); }
+.actions.column { flex-direction: column; }
+.actions.column .btn { width: 100%; }
+
+.sale-card.skeleton .thumb, .sale-card.skeleton .body span, .sk {
+  background: linear-gradient(90deg, var(--line) 25%, color-mix(in srgb, var(--line) 40%, var(--surface)) 50%, var(--line) 75%);
+  background-size: 200% 100%; animation: shimmer 1.3s linear infinite; border-radius: 8px;
+}
+.sale-card.skeleton .body { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
+.sale-card.skeleton .body span { display: block; height: 12px; }
+.sale-card.skeleton .body span:nth-child(1) { width: 35%; }
+.sale-card.skeleton .body span:nth-child(2) { width: 85%; height: 16px; }
+.sale-card.skeleton .body span:nth-child(3) { width: 60%; }
+.skeleton-page { display: flex; flex-direction: column; gap: 10px; }
+.sk-cover { height: 200px; }
+.sk-title { height: 28px; width: 80%; }
+.sk-line { height: 14px; }
+.sk-line.w40 { width: 40%; } .sk-line.w60 { width: 60%; } .sk-line.w70 { width: 70%; }
+.sk-row { display: flex; gap: 8px; margin-top: 6px; }
+.sk-btn { height: 44px; flex: 1; border-radius: 12px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
 label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 500; }
 label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 

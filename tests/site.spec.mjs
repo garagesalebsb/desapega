@@ -58,6 +58,27 @@ test.describe('Visitante sem login', () => {
     await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
   });
 
+  test('perto de mim pede a localização e ordena por distância', async ({ page, context }) => {
+    await context.grantPermissions(['geolocation']);
+    await context.setGeolocation({ latitude: -15.7939, longitude: -47.8828 }); // Plano Piloto
+    await page.goto('./');
+    await page.getByRole('button', { name: 'Perto de mim' }).click();
+    await expect(page).toHaveURL(/perto=1/);
+    await expect(page.getByRole('button', { name: 'Perto de mim' })).toHaveAttribute('aria-pressed', 'true');
+    const card = page.locator('#home-list .sale-card').first();
+    if (await card.count()) await expect(card).toContainText(/\d+(,\d)? ?(km|m)/);
+    else await expect(page.locator('#home-list .empty')).toBeVisible();
+    await page.getByRole('button', { name: 'Perto de mim' }).click();
+    await expect(page).not.toHaveURL(/perto=1/);
+  });
+
+  test('perto de mim sem permissão avisa o motivo', async ({ page, browserName }) => {
+    test.skip(browserName === 'webkit', 'o Safari de teste não simula a recusa de permissão');
+    await page.goto('./');
+    await page.getByRole('button', { name: 'Perto de mim' }).click();
+    await expect(page.getByText(/Não foi possível obter sua localização/)).toBeVisible();
+  });
+
   test('menu inferior abre a busca', async ({ page }) => {
     await page.goto('./');
     await page.getByRole('navigation', { name: 'Navegação principal' }).getByRole('link', { name: 'Buscar' }).click();
@@ -94,6 +115,12 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByRole('link', { name: 'Rota no Google Maps' })).toHaveAttribute('href', new RegExp(`${sale.lat},${sale.lng}`));
     await expect(page.getByRole('link', { name: 'Rota no Waze' })).toHaveAttribute('href', /waze\.com/);
     await expect(page.locator('#sale-map.leaflet-container')).toBeVisible();
+    const calendar = page.getByRole('button', { name: 'Adicionar à agenda' });
+    if (await calendar.count()) { // some quando a venda já fechou hoje
+      await calendar.click();
+      await expect(page.getByRole('link', { name: 'Google Agenda' })).toHaveAttribute('href', /calendar\.google\.com.*dates=\d{8}T\d{6}Z/);
+      await page.getByRole('button', { name: 'Cancelar' }).click();
+    }
     await page.getByRole('button', { name: 'Falar no WhatsApp' }).click();
     await expect(page).toHaveURL(/#\/entrar/);
     await expect(page.getByText('Entre para falar com o vendedor')).toBeVisible();
