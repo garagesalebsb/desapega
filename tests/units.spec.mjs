@@ -2,6 +2,64 @@
 import { test, expect } from '@playwright/test';
 import { pixPayload, normalizePixKey, guessPixType, crc16 } from '../js/pix.js';
 import { stripMetadata } from '../js/metadata.js';
+import { saleStatus, distanceKm, formatDistance, googleCalendarUrl, icsFor } from '../js/when.js';
+
+test.describe('Situação da venda no tempo', () => {
+  // Sábado 24/10/2026, das 8h às 14h
+  const sale = { id: 'x', title: 'Bazar', starts_on: '2026-10-24', ends_on: '2026-10-24', start_time: '08:00:00', end_time: '14:00:00' };
+  const at = (d, h, m = 0) => new Date(2026, 9, d, h, m);
+
+  test('acontecendo agora, até o horário de fechar', () => {
+    expect(saleStatus(sale, at(24, 10))).toEqual({ key: 'agora', label: 'Acontecendo agora · até 14h' });
+  });
+  test('começa em minutos, hoje mais tarde, amanhã e em alguns dias', () => {
+    expect(saleStatus(sale, at(24, 7, 20)).label).toBe('Começa em 40 min');
+    expect(saleStatus(sale, at(24, 5)).label).toBe('Hoje às 8h');
+    expect(saleStatus(sale, at(23, 18)).label).toBe('Amanhã às 8h');
+    expect(saleStatus(sale, at(21, 9)).label).toBe('Em 3 dias');
+  });
+  test('encerrada depois do horário do último dia', () => {
+    expect(saleStatus(sale, at(24, 14, 1)).key).toBe('encerrada');
+  });
+  test('venda de vários dias: fechou hoje, abre amanhã', () => {
+    const multi = { ...sale, ends_on: '2026-10-25' };
+    expect(saleStatus(multi, at(24, 15)).label).toBe('Amanhã às 8h');
+    expect(saleStatus(multi, at(25, 9)).key).toBe('agora');
+  });
+});
+
+test.describe('Distância e agenda', () => {
+  const sale = {
+    id: 'abc', title: 'Bazar, do bloco C; tudo sai', description: 'Móveis\ne roupas', region: 'Plano Piloto', address: 'SQS 308 Bloco C',
+    lat: -15.81, lng: -47.9, starts_on: '2026-10-24', ends_on: '2026-10-25', start_time: '08:00:00', end_time: '14:30:00',
+  };
+
+  test('distância em metros e quilômetros', () => {
+    const km = distanceKm({ lat: -15.7939, lng: -47.8828 }, { lat: -15.8396, lng: -48.0262 }); // Plano Piloto → Águas Claras
+    expect(km).toBeGreaterThan(15);
+    expect(km).toBeLessThan(17);
+    expect(formatDistance(0.43)).toBe('450 m');
+    expect(formatDistance(2.345)).toBe('2,3 km');
+    expect(formatDistance(16.2)).toBe('16 km');
+  });
+
+  test('Google Agenda no horário de Brasília (UTC-3), repetindo nos dias da venda', () => {
+    const u = new URL(googleCalendarUrl(sale, 'https://exemplo/v/abc/'));
+    expect(u.searchParams.get('dates')).toBe('20261024T110000Z/20261024T173000Z');
+    expect(u.searchParams.get('recur')).toBe('RRULE:FREQ=DAILY;COUNT=2');
+    expect(u.searchParams.get('location')).toContain('SQS 308 Bloco C');
+  });
+
+  test('arquivo .ics válido, com lembrete na véspera e texto escapado', () => {
+    const ics = icsFor(sale, 'https://exemplo/v/abc/', new Date(Date.UTC(2026, 9, 1)));
+    expect(ics.startsWith('BEGIN:VCALENDAR\r\n')).toBe(true);
+    expect(ics).toContain('DTSTART:20261024T110000Z');
+    expect(ics).toContain('RRULE:FREQ=DAILY;COUNT=2');
+    expect(ics).toContain('SUMMARY:Bazar\\, do bloco C\\; tudo sai');
+    expect(ics).toContain('TRIGGER:-P1D');
+    for (const line of ics.split('\r\n')) expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+  });
+});
 
 test.describe('Pix (BR Code)', () => {
   test('gera exatamente o exemplo do manual do Banco Central', () => {

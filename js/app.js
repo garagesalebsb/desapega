@@ -4,6 +4,7 @@ import { REGIONS, DF_CENTER, regionByName, SALE_TYPES, CATEGORIES, REPORT_REASON
 import { maybeSuggestInstall } from './install.js';
 import { stripMetadata } from './metadata.js';
 import { initMonitoring, reportError } from './monitoring.js';
+import { saleStatus, distanceKm, formatDistance, googleCalendarUrl, icsFor } from './when.js';
 import { PIX_TYPES, guessPixType, normalizePixKey, formatPixKey, pixPayload, qrSvg, qrImage } from './pix.js';
 
 const $view = document.getElementById('view');
@@ -125,6 +126,7 @@ const icon = {
   camera: '<svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4m0 0h11l-2 4 2 4H5"/></svg>',
   tag: '<svg viewBox="0 0 24 24"><path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>',
   pix: '<svg viewBox="0 0 24 24"><path d="M12 3.5 20.5 12 12 20.5 3.5 12z"/><path d="M8 12h8"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.2-3.8A8 8 0 1 1 8 19z"/><path d="M9 9.5c.5 2.5 2.5 4.5 5 5l1.2-1.2 2 1-.4 1.6c-4.4.4-9-4.2-8.6-8.6L9.8 7l1 2z"/></svg>',
 };
@@ -263,10 +265,17 @@ async function render() {
 // ---------------------------------------------------------------------
 // Cartões
 // ---------------------------------------------------------------------
+// Selo de tempo só quando ajuda a decidir agora: acontecendo ou começando hoje.
+function statusBadge(s) {
+  const st = saleStatus(s);
+  return st.key === 'agora' || st.key === 'hoje' ? `<span class="badge status-${st.key}">${esc(st.label)}</span>` : '';
+}
+
 function saleCard(s) {
   const t = SALE_TYPES[s.type];
   const n = s.items?.[0]?.count ?? 0;
   const fav = state.favorites.has(s.id);
+  const dist = myPosition() ? formatDistance(distanceKm(myPosition(), s)) : '';
   return `
     <a class="sale-card ${s.type === 'mudanca' ? 'highlight' : ''}" href="#/venda/${s.id}">
       <div class="thumb type-bg-${s.type}" ${s.cover_url ? `style="background-image:url('${esc(s.cover_url)}')"` : ''}>
@@ -274,12 +283,39 @@ function saleCard(s) {
         ${fav ? `<span class="fav-dot" title="Favorita">${icon.heart}</span>` : ''}
       </div>
       <div class="body">
-        <span class="badge type-${s.type}">${t.label}</span>
+        <div class="badges"><span class="badge type-${s.type}">${t.label}</span>${statusBadge(s)}</div>
         <h3>${esc(s.title)}</h3>
         <p class="meta">${icon.clock}${fmtWhen(s)}</p>
-        <p class="meta">${icon.pin}${esc(s.region)}${n ? ` · ${n} ${n === 1 ? 'item' : 'itens'}` : ''}</p>
+        <p class="meta">${icon.pin}${dist ? `<strong>${dist}</strong> · ` : ''}${esc(s.region)}${n ? ` · ${n} ${n === 1 ? 'item' : 'itens'}` : ''}</p>
       </div>
     </a>`;
+}
+
+// Esboço dos cartões enquanto carrega, no lugar de "Carregando…".
+const skeletonCards = (n = 4) =>
+  `<div class="cards" aria-busy="true" aria-label="Carregando">${'<div class="sale-card skeleton"><div class="thumb"></div><div class="body"><span></span><span></span><span></span></div></div>'.repeat(n)}</div>`;
+
+// Localização do comprador ("Perto de mim"): fica só nesta aba, nunca é enviada ao servidor.
+function myPosition() {
+  try {
+    return JSON.parse(sessionStorage.getItem('minha-posicao'));
+  } catch {
+    return null;
+  }
+}
+function askPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('Seu aparelho não informa a localização.'));
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        const pos = { lat: p.coords.latitude, lng: p.coords.longitude };
+        sessionStorage.setItem('minha-posicao', JSON.stringify(pos));
+        resolve(pos);
+      },
+      () => reject(new Error('Não foi possível obter sua localização. Confira se o navegador tem permissão.')),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
+    );
+  });
 }
 
 const MAX_PHOTOS = 6;
@@ -321,9 +357,11 @@ async function viewHome(ctx) {
   const when = p.get('quando') || 'fds';
   let region = p.has('regiao') ? p.get('regiao') : localStorage.getItem('regiao') || '';
   const type = p.get('tipo') || '';
+  const near = p.get('perto') === '1' && !!myPosition();
 
   const link = (changes) => {
-    const q = new URLSearchParams({ quando: when, regiao: region, tipo: type, ...changes });
+    const q = new URLSearchParams({ quando: when, regiao: region, tipo: type, ...(near ? { perto: '1' } : {}), ...changes });
+    if (q.get('perto') !== '1') q.delete('perto');
     return '#/?' + q.toString();
   };
 
@@ -342,6 +380,7 @@ async function viewHome(ctx) {
         ${REGIONS.map((r) => `<option ${r.name === region ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
       </select>
       <div class="chips">
+        <button type="button" class="chip chip-near ${near ? 'on' : ''}" id="near" aria-pressed="${near}">${icon.pin}Perto de mim</button>
         <a href="${link({ tipo: '' })}" class="chip ${!type ? 'on' : ''}">Todas</a>
         ${Object.entries(SALE_TYPES)
           .map(([k, t]) => `<a href="${link({ tipo: k })}" class="chip chip-${k} ${type === k ? 'on' : ''}">${t.short}</a>`)
@@ -350,12 +389,25 @@ async function viewHome(ctx) {
     </div>
     <div class="home-grid">
       <div id="home-map" class="map"></div>
-      <div id="home-list"><div class="loading">Carregando vendas…</div></div>
+      <div id="home-list">${skeletonCards()}</div>
     </div>`;
 
   document.getElementById('f-region').addEventListener('change', (e) => {
     localStorage.setItem('regiao', e.target.value);
     location.hash = link({ regiao: e.target.value });
+  });
+  document.getElementById('near').addEventListener('click', async (e) => {
+    if (near) return (location.hash = link({ perto: '0' }));
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      await askPosition();
+      // Perto de mim vale para o DF inteiro: a região escolhida deixa de filtrar.
+      location.hash = link({ perto: '1', regiao: '' });
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+    }
   });
 
   let q = sb
@@ -369,21 +421,36 @@ async function viewHome(ctx) {
   if (when === 'fds') q = q.lte('starts_on', isoDate(thisSunday()));
   if (region) q = q.eq('region', region);
   if (type) q = q.eq('type', type);
-  const { data: sales, error } = await q;
+  const { data: rows, error } = await q;
   if (!ctx.alive()) return;
   if (error) throw error;
+  // Tira as que já fecharam hoje; "perto de mim" ordena pela distância.
+  const sales = rows.filter((s) => saleStatus(s).key !== 'encerrada');
+  const me = near ? myPosition() : null;
+  if (me) sales.sort((a, b) => distanceKm(me, a) - distanceKm(me, b));
 
   const r = regionByName(region);
-  const map = makeMap('home-map', r ? [r.lat, r.lng] : DF_CENTER, r ? 14 : 11);
-  const bounds = [];
+  const map = makeMap('home-map', me ? [me.lat, me.lng] : r ? [r.lat, r.lng] : DF_CENTER, me ? 13 : r ? 14 : 11);
+  if (me) {
+    L.marker([me.lat, me.lng], {
+      icon: L.divIcon({ className: 'me-dot', html: '<span></span>', iconSize: [22, 22], iconAnchor: [11, 11] }),
+      zIndexOffset: 1000,
+      title: 'Você está aqui',
+    })
+      .addTo(map)
+      .bindTooltip('Você está aqui');
+  }
+  const bounds = me ? [[me.lat, me.lng]] : [];
   for (const s of sales) {
     L.marker([s.lat, s.lng], { icon: pinIcon(s.type) })
       .addTo(map)
       .bindPopup(`<a href="#/venda/${s.id}"><strong>${esc(s.title)}</strong></a><br>${fmtWhen(s)}`);
     bounds.push([s.lat, s.lng]);
   }
-  if (bounds.length > 1) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15, animate: false });
-  else if (bounds.length === 1) map.setView(bounds[0], 15, { animate: false });
+  // Perto de mim: enquadra você e as 5 vendas mais próximas.
+  const frame = me ? bounds.slice(0, 6) : bounds;
+  if (frame.length > 1) map.fitBounds(frame, { padding: [30, 30], maxZoom: 15, animate: false });
+  else if (frame.length === 1) map.setView(frame[0], me ? 13 : 15, { animate: false });
 
   const list = document.getElementById('home-list');
   if (!sales.length) {
@@ -397,13 +464,20 @@ async function viewHome(ctx) {
     return;
   }
 
-  const mudancas = !type ? sales.filter((s) => s.type === 'mudanca') : [];
+  const now = sales.filter((s) => saleStatus(s).key === 'agora');
+  // No "perto de mim" a distância manda: sem a faixa de destaque das mudanças.
+  const mudancas = !type && !me ? sales.filter((s) => s.type === 'mudanca' && !now.includes(s)) : [];
+  // Título da lista completa: só aparece quando há destaques acima dela ou no "perto de mim".
+  const listTitle = me ? 'Mais perto de você' : now.length || mudancas.length ? 'Todas as vendas' : '';
   list.innerHTML = `
+    ${now.length ? `
+      <h2 class="section-title"><span class="live-dot"></span>Acontecendo agora</h2>
+      <div class="cards strip">${now.map(saleCard).join('')}</div>` : ''}
     ${mudancas.length ? `
       <h2 class="section-title">Em destaque: vendas de mudança</h2>
       <p class="hint">Quem se muda vende quase tudo, e rápido.</p>
-      <div class="cards strip">${mudancas.map(saleCard).join('')}</div>
-      <h2 class="section-title">Todas as vendas</h2>` : ''}
+      <div class="cards strip">${mudancas.map(saleCard).join('')}</div>` : ''}
+    ${listTitle ? `<h2 class="section-title">${listTitle}</h2>` : ''}
     <div class="cards">${sales.map(saleCard).join('')}</div>`;
 }
 
@@ -439,7 +513,7 @@ async function viewSearch(ctx) {
 
   const safe = qText.replace(/[%,()*\\]/g, ' ').trim();
   const out = document.getElementById('results');
-  out.innerHTML = '<div class="loading">Buscando…</div>';
+  out.innerHTML = skeletonCards(3);
 
   let iq = sb
     .from('items')
@@ -493,7 +567,12 @@ async function viewSearch(ctx) {
 // Página pública da venda
 // ---------------------------------------------------------------------
 async function viewSale(ctx, id) {
-  $view.innerHTML = '<div class="loading">Carregando venda…</div>';
+  $view.innerHTML = `
+    <div class="sale skeleton-page" aria-busy="true" aria-label="Carregando venda">
+      <div class="sk sk-cover"></div><div class="sk sk-line w40"></div><div class="sk sk-title"></div>
+      <div class="sk sk-line w70"></div><div class="sk sk-line w60"></div>
+      <div class="sk-row"><div class="sk sk-btn"></div><div class="sk sk-btn"></div><div class="sk sk-btn"></div></div>
+    </div>`;
   const { data: sale, error } = await sb
     .from('sales')
     .select('*, owner:profiles!sales_owner_id_fkey(id,name), items(*)')
@@ -507,7 +586,9 @@ async function viewSale(ctx, id) {
   }
 
   const isOwner = state.user?.id === sale.owner_id;
-  const ended = sale.ends_on < today();
+  const status = saleStatus(sale);
+  const ended = status.key === 'encerrada';
+  const me = myPosition();
   const rank = { disponivel: 0, reservado: 1, vendido: 2 };
   const sortItems = () => sale.items.sort((a, b) => rank[a.status] - rank[b.status] || b.created_at.localeCompare(a.created_at));
   sortItems();
@@ -519,12 +600,14 @@ async function viewSale(ctx, id) {
     <article class="sale">
       ${sale.cover_url ? `<div class="cover" style="background-image:url('${esc(sale.cover_url)}')"></div>` : ''}
       <div class="sale-head">
-        <span class="badge type-${sale.type}">${t.label}</span>
-        ${ended ? '<span class="badge muted">Encerrada</span>' : ''}
-        ${sale.hidden ? '<span class="badge danger">Oculta pela moderação</span>' : ''}
+        <div class="badges">
+          <span class="badge type-${sale.type}">${t.label}</span>
+          ${ended ? '<span class="badge muted">Encerrada</span>' : statusBadge(sale)}
+          ${sale.hidden ? '<span class="badge danger">Oculta pela moderação</span>' : ''}
+        </div>
         <h1>${esc(sale.title)}</h1>
         <p class="meta big">${icon.clock}${fmtWhen(sale)}</p>
-        <p class="meta big">${icon.pin}${esc(sale.region)}${sale.address ? ` · ${esc(sale.address)}` : ''}</p>
+        <p class="meta big">${icon.pin}${esc(sale.region)}${sale.address ? ` · ${esc(sale.address)}` : ''}${me ? ` · <strong>a ${formatDistance(distanceKm(me, sale))} de você</strong>` : ''}</p>
         ${sale.reference ? `<p class="reference">Referência: ${esc(sale.reference)}</p>` : ''}
         <p class="meta">Por ${esc(sale.owner?.name || 'vendedor')}</p>
       </div>
@@ -534,6 +617,7 @@ async function viewSale(ctx, id) {
         <a class="btn" href="${links.google}" target="_blank" rel="noopener">Rota no Google Maps</a>
         <a class="btn" href="${links.waze}" target="_blank" rel="noopener">Rota no Waze</a>
         <button class="btn" data-act="share">${icon.share}Compartilhar</button>
+        ${ended ? '' : `<button class="btn" data-act="calendar">${icon.calendar}Adicionar à agenda</button>`}
         ${isOwner ? '' : `<button class="btn fav ${state.favorites.has(sale.id) ? 'on' : ''}" data-act="fav">${icon.heart}<span>${state.favorites.has(sale.id) ? 'Salva' : 'Salvar'}</span></button>`}
       </div>
 
@@ -708,6 +792,8 @@ async function viewSale(ctx, id) {
       navigate('/minhas');
     } else if (act === 'duplicate') {
       openDuplicate(sale);
+    } else if (act === 'calendar') {
+      openCalendar(sale);
     } else if (act === 'report-sale' || act === 'report-user') {
       if (!requireLogin(`/venda/${sale.id}`, 'Entre para enviar uma denúncia.')) return;
       openReport(act === 'report-sale' ? { sale_id: sale.id } : { sale_id: sale.id, reported_user_id: sale.owner_id }, act === 'report-sale' ? 'anúncio' : 'vendedor');
@@ -953,6 +1039,28 @@ async function openPix(sale, item, openWhatsApp) {
   el.querySelector('[data-paid]').onclick = () => {
     close();
     openWhatsApp(`Olá! Fiz o Pix de ${brl(item.price)} pelo item "${item.title}" da sua venda "${sale.title}". Podemos combinar a retirada?`);
+  };
+}
+
+// Adicionar à agenda: Google Agenda (link) ou arquivo .ics (iPhone, Outlook, Samsung), com lembrete na véspera.
+function openCalendar(sale) {
+  const url = saleUrl(sale.id);
+  const { el, close } = openModal(`
+    <h2>Adicionar à agenda</h2>
+    <p class="hint">A agenda do seu celular avisa na véspera para você não perder a venda.</p>
+    <div class="actions column">
+      <a class="btn" href="${esc(googleCalendarUrl(sale, url))}" target="_blank" rel="noopener" data-close>${icon.calendar}Google Agenda</a>
+      <button class="btn" data-ics>${icon.calendar}iPhone, Outlook ou outra agenda</button>
+      <button class="btn" data-close>Cancelar</button>
+    </div>`);
+  el.querySelector('[data-ics]').onclick = () => {
+    const blob = new Blob([icsFor(sale, url)], { type: 'text/calendar;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `venda-${sale.starts_on}.ics`;
+    a.click();
+    close();
+    toast('Abra o arquivo baixado para salvar na agenda.');
   };
 }
 
@@ -1560,7 +1668,7 @@ async function viewMine(ctx) {
       <a href="#/minhas?aba=vendas" class="${tab === 'vendas' ? 'on' : ''}">Minhas vendas</a>
       <a href="#/minhas?aba=favoritas" class="${tab === 'favoritas' ? 'on' : ''}">Favoritas</a>
     </div>
-    <div id="mine"><div class="loading">Carregando…</div></div>`;
+    <div id="mine">${skeletonCards(3)}</div>`;
 
   let sales;
   if (tab === 'vendas') {
