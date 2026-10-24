@@ -1277,7 +1277,7 @@ async function viewPoster(ctx, id) {
   };
 }
 
-const TYPE_COLORS = { garagem: '#1d7c69', mudanca: '#b45309', bazar: '#6741d9' };
+const TYPE_COLORS = { garagem: '#3563ad', mudanca: '#b45309', bazar: '#6741d9' };
 
 function wrapText(g, text, x, y, maxWidth, lineHeight, maxLines) {
   const words = String(text).split(/\s+/);
@@ -1317,7 +1317,7 @@ async function buildPosterImage(sale, url, where) {
   g.fillText(SALE_TYPES[sale.type].label.toUpperCase(), P, 78);
 
   g.textBaseline = 'alphabetic';
-  g.fillStyle = '#1d2321';
+  g.fillStyle = '#1c2319';
   g.font = font(800, 76);
   let y = wrapText(g, sale.title, P, 290, W - 2 * P, 88, 3);
   g.font = font(700, 46);
@@ -1333,11 +1333,11 @@ async function buildPosterImage(sale, url, where) {
   const qx = (W - size) / 2;
   const qy = Math.max(y + 40, H - size - 230);
   g.drawImage(qr, qx, qy, size, size);
-  g.fillStyle = '#1d2321';
+  g.fillStyle = '#1c2319';
   g.font = font(700, 40);
   g.textAlign = 'center';
   g.fillText('Veja todos os itens e preços', W / 2, qy + size + 70);
-  g.fillStyle = '#6b6461';
+  g.fillStyle = '#626b5d';
   g.font = font(500, 32);
   g.fillText(`${CONFIG.APP_NAME} · aponte a câmera ou toque no link`, W / 2, qy + size + 120);
 
