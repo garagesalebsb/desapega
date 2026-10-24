@@ -21,12 +21,12 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByRole('heading', { name: /Vendas de garagem, bazares e mudanças/ })).toBeVisible();
     await expect(page.locator('#f-region option')).toHaveCount(36); // "Todo o DF" + 35 regiões
     await expect(page.locator('#home-map.leaflet-container')).toBeVisible();
-    await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
+    await expect(page.locator('#home-list .sale-card:not(.skeleton), #home-list .empty').first()).toBeVisible();
   });
 
   test('a tela cabe no celular, sem rolagem para o lado', async ({ page }) => {
     await page.goto('./');
-    await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
+    await expect(page.locator('#home-list .sale-card:not(.skeleton), #home-list .empty').first()).toBeVisible();
     const { scroll, width } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: innerWidth }));
     expect(scroll).toBeLessThanOrEqual(width);
   });
@@ -37,7 +37,7 @@ test.describe('Visitante sem login', () => {
       await page.evaluate((h) => (location.hash = h), hash);
       await page.waitForTimeout(30);
     }
-    await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
+    await expect(page.locator('#home-list .sale-card:not(.skeleton), #home-list .empty').first()).toBeVisible();
     await page.waitForTimeout(500); // deixa terminar qualquer animação pendente
   });
 
@@ -55,7 +55,7 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByRole('heading', { name: 'Sem conexão' })).toBeVisible();
     await page.unroute('**/rest/v1/**');
     await page.getByRole('button', { name: 'Tentar de novo' }).click();
-    await expect(page.locator('#home-list .sale-card, #home-list .empty').first()).toBeVisible();
+    await expect(page.locator('#home-list .sale-card:not(.skeleton), #home-list .empty').first()).toBeVisible();
   });
 
   test('perto de mim pede a localização e ordena por distância', async ({ page, context }) => {
@@ -65,9 +65,10 @@ test.describe('Visitante sem login', () => {
     await page.getByRole('button', { name: 'Perto de mim' }).click();
     await expect(page).toHaveURL(/perto=1/);
     await expect(page.getByRole('button', { name: 'Perto de mim' })).toHaveAttribute('aria-pressed', 'true');
-    const card = page.locator('#home-list .sale-card').first();
-    if (await card.count()) await expect(card).toContainText(/\d+(,\d)? ?(km|m)/);
-    else await expect(page.locator('#home-list .empty')).toBeVisible();
+    // Espera o resultado de verdade (não o cartão cinza de carregamento): vendas com distância ou o aviso de vazio.
+    const result = page.locator('#home-list .sale-card:not(.skeleton), #home-list .empty').first();
+    await expect(result).toBeVisible();
+    if (await result.evaluate((el) => el.classList.contains('sale-card'))) await expect(result).toContainText(/\d+(,\d)? ?(km|m)/);
     await page.getByRole('button', { name: 'Perto de mim' }).click();
     await expect(page).not.toHaveURL(/perto=1/);
   });
