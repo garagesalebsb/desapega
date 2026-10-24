@@ -27,7 +27,13 @@
       <img src="icons/icon.svg" alt="" width="28" height="28">
       <span id="app-name">Desapego Brasília</span>
     </a>
-    <a href="#/entrar" id="account-link" class="account-link">Entrar</a>
+    <div class="top-actions">
+      <a href="#/notificacoes" id="notif-link" class="notif-link" aria-label="Notificações" hidden>
+        <svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>
+        <span id="notif-badge" class="notif-badge" hidden></span>
+      </a>
+      <a href="#/entrar" id="account-link" class="account-link">Entrar</a>
+    </div>
   </header>
 
   <main id="view" class="view" aria-live="polite">

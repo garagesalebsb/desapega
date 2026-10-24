@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir rápido e funcionar com internet ruim.
 // Arquivos do app: rede primeiro, cache como reserva. Dados do Supabase: sempre da rede.
-const CACHE = 'desapego-v8';
+const CACHE = 'desapego-v9';
 const SHELL = [
   './',
   'index.html',
@@ -70,6 +70,8 @@ self.addEventListener('push', (e) => {
   try {
     msg = e.data ? e.data.json() : {};
   } catch {}
+  // App aberto: atualiza o número do sininho.
+  self.clients.matchAll({ type: 'window' }).then((wins) => wins.forEach((w) => w.postMessage({ type: 'push' })));
   e.waitUntil(
     self.registration.showNotification(msg.title || 'Desapego Brasília', {
       body: msg.body || 'Uma venda que você salvou está chegando.',

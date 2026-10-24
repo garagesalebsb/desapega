@@ -100,9 +100,12 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByRole('link', { name: 'Termos de Uso' })).toHaveAttribute('href', 'termos.html');
   });
 
-  test('minhas vendas e perfil pedem login', async ({ page }) => {
+  test('minhas vendas, notificações e perfil pedem login', async ({ page }) => {
     await page.goto('./#/minhas');
     await expect(page.getByText('Entre para ver suas vendas e favoritas')).toBeVisible();
+    await expect(page.getByRole('link', { name: /Notificações/ })).toBeHidden(); // o sininho só aparece logado
+    await page.goto('./#/notificacoes');
+    await expect(page.getByText('Entre para ver suas notificações')).toBeVisible();
     await page.goto('./#/perfil');
     await expect(page.getByRole('heading', { name: 'Entrar' })).toBeVisible();
   });
