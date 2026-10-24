@@ -108,13 +108,14 @@ function toast(msg, kind = '', err = null) {
 const navigate = (path) => (location.hash = '#' + path);
 const saleUrl = (id) => `${BASE_URL}v/${id}/`;
 
-function openModal(html, className = '') {
+// Com { keep: true }, um toque fora não fecha (para janelas com muito preenchimento, como o lote).
+function openModal(html, className = '', { keep = false } = {}) {
   const wrap = document.createElement('div');
   wrap.className = 'modal-backdrop';
   wrap.innerHTML = `<div class="modal ${className}" role="dialog" aria-modal="true">${html}</div>`;
   const close = () => wrap.remove();
   wrap.addEventListener('click', (e) => {
-    if (e.target === wrap || e.target.closest('[data-close]')) close();
+    if ((e.target === wrap && !keep) || e.target.closest('[data-close]')) close();
   });
   document.body.appendChild(wrap);
   return { el: wrap.querySelector('.modal'), close };
@@ -558,7 +559,7 @@ async function viewSearch(ctx) {
     .neq('status', 'vendido')
     .order('created_at', { ascending: false })
     .limit(60);
-  if (safe) iq = iq.ilike('title', `%${safe}%`);
+  if (safe) iq = iq.or(`title.ilike.%${safe}%,description.ilike.%${safe}%`);
   if (cat) iq = iq.eq('category', cat);
 
   const sq = safe
@@ -689,9 +690,12 @@ async function viewSale(ctx, id) {
                   ${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
                 </select>
               </div>
+              <textarea name="description" rows="2" maxlength="1000" placeholder="Descrição (opcional): estado, marca, medidas…"></textarea>
+              <p class="hint ai-hint" hidden></p>
               <button class="btn primary">Salvar e adicionar outro</button>
             </div>
           </form>
+          <button type="button" class="btn batch-open" data-act="batch">${icon.camera}Vários itens de uma vez (fotos em lote)</button>
         </section>` : ''}
 
       <section>
@@ -825,6 +829,11 @@ async function viewSale(ctx, id) {
       removeStoredPhotos([sale.cover_url, ...sale.items.flatMap(itemPhotos)]);
       toast('Venda excluída.');
       navigate('/minhas');
+    } else if (act === 'batch') {
+      openBatch(sale, () => {
+        sortItems();
+        renderItems();
+      });
     } else if (act === 'duplicate') {
       openDuplicate(sale);
     } else if (act === 'calendar') {
@@ -846,17 +855,20 @@ function setupItemForm(sale, renderItems, sortItems) {
   const preview = form.querySelector('.photo-pick img');
   const ph = form.querySelector('.photo-pick .ph');
   const count = form.querySelector('.photo-pick .photo-count');
+  const aiHint = form.querySelector('.ai-hint');
   let lastCategory = localStorage.getItem('ultima-categoria') || 'outros';
   form.category.value = lastCategory;
+  form.category.addEventListener('change', () => (form.category.dataset.touched = '1'));
   let files = [];
 
-  fileInput.addEventListener('change', () => {
+  fileInput.addEventListener('change', async () => {
     files = [...fileInput.files].slice(0, MAX_PHOTOS);
     if (fileInput.files.length > MAX_PHOTOS) toast(`Até ${MAX_PHOTOS} fotos por item. Usei as primeiras ${MAX_PHOTOS}.`);
     count.hidden = files.length < 2;
     count.textContent = `+${files.length - 1}`;
     if (files[0]) previewPhoto(files[0], preview, ph);
     files.slice(1).forEach((f) => isHeic(f) && convertHeic(f)); // adianta a conversão
+    if (files[0]) fillWithAI(form, files[0], aiHint, () => files[0]);
   });
 
   form.addEventListener('submit', async (e) => {
@@ -872,6 +884,7 @@ function setupItemForm(sale, renderItems, sortItems) {
         title: form.title.value.trim(),
         price: parsePrice(form.price.value),
         category: form.category.value,
+        description: form.description.value.trim() || null,
         photo_url,
         photos,
       };
@@ -891,6 +904,8 @@ function setupItemForm(sale, renderItems, sortItems) {
       preview.hidden = true;
       count.hidden = true;
       ph.hidden = false;
+      aiHint.hidden = true;
+      delete form.category.dataset.touched;
       form.title.focus();
       toast('Item salvo!');
     } catch (err) {
@@ -900,6 +915,198 @@ function setupItemForm(sale, renderItems, sortItems) {
       btn.textContent = 'Salvar e adicionar outro';
     }
   });
+}
+
+// ---------------------------------------------------------------------
+// Descrição automática da foto (IA do Google, pela função supabase/functions/descrever-item)
+// ---------------------------------------------------------------------
+let aiAvailable = null; // null: ainda não sabemos; false: não configurada (some da tela nesta visita)
+
+const blobToBase64 = (blob) =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+
+// Devolve { title, description, category, price } ou null se a IA não estiver disponível.
+async function describePhoto(file) {
+  if (aiAvailable === false) return null;
+  let blob = await resizeImage(file, 768, 0.75).catch(() => null);
+  if (!blob && isHeic(file)) {
+    const jpeg = await convertHeic(file);
+    blob = jpeg && (await resizeImage(jpeg, 768, 0.75).catch(() => null));
+  }
+  if (!blob) return null;
+  const { data, error } = await sb.functions.invoke('descrever-item', {
+    body: { image: await blobToBase64(blob), categories: CATEGORIES },
+  });
+  if (error) {
+    const status = error.context?.status;
+    if (!status || status === 404 || status === 503) {
+      aiAvailable = false; // função não publicada ou sem a chave: segue sem IA
+      return null;
+    }
+    let msg = '';
+    try {
+      msg = (await error.context.json()).error;
+    } catch {}
+    throw new Error(msg || 'A IA não conseguiu analisar a foto.');
+  }
+  aiAvailable = true;
+  return data;
+}
+
+// Preenche só o que a pessoa ainda não digitou (a categoria, se ela não escolheu).
+function applyAI(f, ai) {
+  if (ai.title && !f.title.value.trim()) f.title.value = ai.title;
+  if (ai.description && !f.description.value.trim()) f.description.value = ai.description;
+  if (ai.category && CATEGORIES[ai.category] && f.category.dataset.touched !== '1') f.category.value = ai.category;
+  if (ai.price != null && !f.price.value.trim()) f.price.value = String(ai.price);
+}
+
+async function fillWithAI(f, file, hint, current) {
+  if (aiAvailable === false) return;
+  hint.hidden = false;
+  hint.classList.add('working');
+  hint.textContent = '✨ Descrevendo a foto com IA…';
+  try {
+    const ai = await describePhoto(file);
+    if (current() !== file) return; // a pessoa já trocou de foto
+    hint.classList.remove('working');
+    if (!ai) return void (hint.hidden = true);
+    applyAI(f, ai);
+    hint.textContent = '✨ Preenchido pela IA. Confira título, preço e categoria antes de salvar.';
+  } catch (err) {
+    if (current() !== file) return;
+    hint.classList.remove('working');
+    hint.textContent = err.message;
+  }
+}
+
+// Executa fn em no máximo "limit" itens ao mesmo tempo (não trava o celular nem a rede).
+async function mapLimit(list, limit, fn) {
+  const out = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < list.length) {
+      const i = next++;
+      out[i] = await fn(list[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, list.length) }, worker));
+  return out;
+}
+
+// ---------------------------------------------------------------------
+// Cadastro em lote: cada foto vira um item; a IA preenche, a pessoa confere e salva tudo.
+// ---------------------------------------------------------------------
+const MAX_BATCH = 30;
+
+function openBatch(sale, done) {
+  const rows = []; // { file, el, url, removed }
+  const lastCategory = localStorage.getItem('ultima-categoria') || 'outros';
+  const { el, close } = openModal(`
+    <h2>Cadastrar em lote</h2>
+    <p class="hint">Escolha várias fotos de uma vez: <strong>cada foto vira um item</strong>. ${aiAvailable === false ? '' : 'A IA sugere título, descrição, categoria e preço, e você só confere.'} Depois dá para juntar mais fotos num item, em "Editar".</p>
+    <label class="btn batch-pick">${icon.camera}<span>Escolher fotos</span><input type="file" accept="image/*" multiple hidden></label>
+    <div class="batch-list"></div>
+    <div class="actions batch-actions">
+      <button class="btn primary" data-save disabled>Salvar itens</button>
+      <button class="btn" data-close>Cancelar</button>
+    </div>`, 'batch', { keep: true });
+  const list = el.querySelector('.batch-list');
+  const save = el.querySelector('[data-save]');
+  const live = () => rows.filter((r) => !r.removed);
+  const updateSave = () => {
+    const n = live().length;
+    save.disabled = !n;
+    save.textContent = n ? `Salvar ${n} ${n === 1 ? 'item' : 'itens'}` : 'Salvar itens';
+    el.querySelector('.batch-pick span').textContent = n ? 'Adicionar mais fotos' : 'Escolher fotos';
+  };
+
+  el.querySelector('.batch-pick input').addEventListener('change', (e) => {
+    const room = MAX_BATCH - live().length;
+    const picked = [...e.target.files].slice(0, room);
+    if (e.target.files.length > room) toast(`Até ${MAX_BATCH} fotos por lote. Salve estas e faça outro lote.`);
+    e.target.value = '';
+    const added = picked.map((file) => {
+      const row = { file };
+      row.el = document.createElement('div');
+      row.el.className = 'batch-row';
+      row.el.innerHTML = `
+        <img class="batch-thumb" alt="">
+        <div class="batch-fields">
+          <input name="title" placeholder="O que é?" maxlength="120" aria-label="Título">
+          <div class="row">
+            <input name="price" inputmode="decimal" placeholder="Preço (R$)" aria-label="Preço">
+            <select name="category" aria-label="Categoria">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === lastCategory ? 'selected' : ''}>${v}</option>`).join('')}</select>
+          </div>
+          <textarea name="description" rows="2" maxlength="1000" placeholder="Descrição (opcional)" aria-label="Descrição"></textarea>
+          <small class="hint ai-hint" hidden></small>
+        </div>
+        <button type="button" class="rm" aria-label="Tirar esta foto do lote">&times;</button>`;
+      const q = (n) => row.el.querySelector(`[name=${n}]`);
+      row.f = { title: q('title'), price: q('price'), category: q('category'), description: q('description') };
+      row.f.category.addEventListener('change', () => (row.f.category.dataset.touched = '1'));
+      showFile(row.el.querySelector('img'), file);
+      row.el.querySelector('.rm').onclick = () => {
+        row.removed = true;
+        row.el.remove();
+        updateSave();
+      };
+      list.append(row.el);
+      rows.push(row);
+      return row;
+    });
+    updateSave();
+    // A IA analisa 3 fotos por vez, enquanto a pessoa já pode ir conferindo as primeiras.
+    mapLimit(added, 3, (row) => (row.removed ? null : fillWithAI(row.f, row.file, row.el.querySelector('.ai-hint'), () => row.file)));
+  });
+
+  save.onclick = async () => {
+    const todo = live();
+    const missing = todo.find((r) => !r.f.title.value.trim());
+    if (missing) {
+      missing.f.title.focus();
+      return toast('Dê um título para todos os itens (ou tire a foto do lote).', 'error');
+    }
+    save.disabled = true;
+    let sent = todo.filter((r) => r.url).length;
+    const progress = () => (save.textContent = `Enviando fotos… ${sent} de ${todo.length}`);
+    progress();
+    try {
+      await mapLimit(todo, 3, async (r) => {
+        if (r.url) return; // já enviada numa tentativa anterior
+        r.url = await uploadPhoto(r.file);
+        sent++;
+        progress();
+      });
+      save.textContent = 'Salvando itens…';
+      const { data, error } = await sb.from('items').insert(todo.map((r) => ({
+        sale_id: sale.id,
+        title: r.f.title.value.trim(),
+        price: parsePrice(r.f.price.value),
+        category: r.f.category.value,
+        description: r.f.description.value.trim() || null,
+        photo_url: r.url,
+        photos: [r.url],
+      }))).select();
+      if (error) throw new Error(`Erro ao salvar os itens: ${error.message}`);
+      sale.items.unshift(...data);
+      if (!sale.cover_url && data[0]?.photo_url) {
+        sale.cover_url = data[0].photo_url;
+        await sb.from('sales').update({ cover_url: sale.cover_url }).eq('id', sale.id);
+      }
+      close();
+      done();
+      toast(`${data.length} ${data.length === 1 ? 'item cadastrado' : 'itens cadastrados'}!`);
+    } catch (err) {
+      toast(err.message || 'Erro ao salvar os itens.', 'error', err);
+      updateSave();
+    }
+  };
 }
 
 // Fotos do item em tela cheia, com as ações de compra.
@@ -914,6 +1121,7 @@ function openItemViewer(sale, item, { isOwner, ended, hasPix, onAction }) {
       <strong class="price">${brl(item.price)}</strong>
       <h2>${esc(item.title)}</h2>
       <p class="meta">${CATEGORIES[item.category] || ''}${item.status !== 'disponivel' ? ` · ${STATUS_LABEL[item.status]}` : ''}</p>
+      ${item.description ? `<p class="item-desc">${esc(item.description).replace(/\n/g, '<br>')}</p>` : ''}
     </div>
     <div class="actions">
       ${canBuy ? `<button class="btn whatsapp" data-a="interest">${icon.whatsapp}Tenho interesse</button>` : ''}
@@ -959,6 +1167,8 @@ function openItemEditor(sale, item, done) {
           <select name="category">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === item.category ? 'selected' : ''}>${v}</option>`).join('')}</select>
         </label>
       </div>
+      <label>Descrição<textarea name="description" rows="3" maxlength="1000" placeholder="Estado, marca, medidas…">${esc(item.description || '')}</textarea></label>
+      ${aiAvailable === false ? '' : '<button type="button" class="btn small" data-ai>✨ Descrever com IA (a partir da foto principal)</button><p class="hint ai-hint" hidden></p>'}
       <div class="actions">
         <button class="btn primary">Salvar</button>
         <button type="button" class="btn" data-close>Cancelar</button>
@@ -992,6 +1202,27 @@ function openItemEditor(sale, item, done) {
   };
   renderPhotos();
 
+  // Aqui a pessoa pediu: a IA reescreve título, descrição e categoria (o preço só se estiver vazio).
+  el.querySelector('[data-ai]')?.addEventListener('click', async (e) => {
+    const main = photos[0];
+    if (!main) return toast('Adicione uma foto primeiro.', 'error');
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const file = typeof main === 'string' ? new File([await (await fetch(main)).blob()], 'foto.jpg', { type: 'image/jpeg' }) : main;
+      form.title.value = '';
+      form.description.value = '';
+      delete form.category.dataset.touched;
+      await fillWithAI(form, file, el.querySelector('.ai-hint'), () => file);
+      if (!form.title.value) form.title.value = item.title; // IA indisponível: volta o título
+    } catch (err) {
+      toast('Não foi possível ler a foto para a IA.', 'error', err);
+      if (!form.title.value) form.title.value = item.title;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   box.addEventListener('click', (e) => {
     const rm = e.target.closest('[data-rm]');
     if (rm) {
@@ -1016,6 +1247,7 @@ function openItemEditor(sale, item, done) {
         title: form.title.value.trim(),
         price: parsePrice(form.price.value),
         category: form.category.value,
+        description: form.description.value.trim() || null,
         photos: urls,
         photo_url: urls[0] || null,
       };
