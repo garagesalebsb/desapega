@@ -95,7 +95,7 @@ export function icsFor(s, url, now = new Date()) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Desapego Brasilia//PT-BR',
+    'PRODID:-//Desapega//PT-BR',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',

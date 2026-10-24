@@ -1,4 +1,4 @@
-# Desapego Brasília
+# Desapega
 
 PWA para encontrar e divulgar **vendas de garagem, bazares e vendas de mudança** em Brasília, construído a partir do *Plano do Projeto – Site de Vendas de Garagem em Brasília*.
 

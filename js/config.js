@@ -3,7 +3,7 @@
 export const CONFIG = {
   SUPABASE_URL: 'https://jadxgfwguzcbmuvjutvq.supabase.co',
   SUPABASE_ANON_KEY: 'sb_publishable_GAcisaQRatOCvvcf6-FxQQ_tVfGY7dW',
-  APP_NAME: 'Desapego Brasília',
+  APP_NAME: 'Desapega',
   // Monitoramento de erros (opcional): cole aqui o DSN do projeto no Sentry (sentry.io).
   SENTRY_DSN: 'https://c8f352c643add0e7dc34791eaa94ac9b@o4512308208926720.ingest.us.sentry.io/4512308223410176',
   // Chave pública dos lembretes por notificação (a privada fica só nos segredos do GitHub).

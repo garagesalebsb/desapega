@@ -36,8 +36,8 @@ function showBanner() {
   const el = document.createElement('div');
   el.className = 'install-banner';
   el.innerHTML = `
-    <img src="icons/icon.svg" alt="" width="40" height="40">
-    <div><strong>Tenha o Desapego na tela inicial</strong><span>Abra as vendas do fim de semana com um toque.</span></div>
+    <img src="icons/icon-192.png" alt="" width="40" height="40">
+    <div><strong>Tenha o Desapega na tela inicial</strong><span>Abra as vendas do fim de semana com um toque.</span></div>
     <button class="btn primary small" data-install>Adicionar</button>
     <button class="close" aria-label="Agora não" data-dismiss>&times;</button>`;
   document.body.appendChild(el);

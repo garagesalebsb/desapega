@@ -6,3 +6,6 @@ Thumbs.db
 test-results/
 playwright-report/
 package-lock.json
+
+# Arte original da logo (fica só no computador)
+icons/*.jfif
