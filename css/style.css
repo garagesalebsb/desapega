@@ -441,3 +441,18 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 .notif-sk { flex: 1; height: 38px; }
 .notif-page .reminder-box.compact { margin-top: 16px; }
 .empty #reminders { max-width: 480px; margin: 0 auto 16px; text-align: left; }
+
+/* ---------- Lote e descrição automática ---------- */
+.batch-open { width: 100%; margin-top: 10px; }
+.ai-hint { margin: 0; font-size: .85rem; color: var(--brand); }
+.ai-hint.working { color: var(--muted); animation: pulse 1.6s ease-in-out infinite; }
+.modal.batch { max-width: 720px; }
+.batch-pick { width: 100%; }
+.batch-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.batch-row { position: relative; display: flex; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.batch-thumb { width: 84px; height: 84px; flex: none; object-fit: cover; border-radius: 10px; background: var(--line); }
+.batch-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding-right: 22px; }
+.batch-row .rm { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--surface); color: var(--ink); font-size: 1.2rem; line-height: 1; cursor: pointer; }
+.batch-actions { position: sticky; bottom: 0; background: var(--surface); padding-top: 8px; }
+.item-desc { margin: 8px 0 0; color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .ai-hint.working { animation: none; } }

@@ -30,6 +30,14 @@ test.describe('Banco: visitante sem login', () => {
     expect((await rpc(request, 'reminders_check_secret', { p_secret: 'errada' })).ok()).toBe(false);
   });
 
+  test('não usa a IA nem vê o consumo dela', async ({ request }) => {
+    expect((await rpc(request, 'ai_take_quota')).ok()).toBe(false);
+    const usage = await request.get(rest('ai_usage?select=*'), { headers });
+    if (usage.ok()) expect(await usage.json()).toEqual([]);
+    const ai = await request.post(`${SUPABASE_URL}/functions/v1/descrever-item`, { headers, data: { image: 'AAAA', categories: { outros: 'Outros' } } });
+    expect(ai.ok()).toBe(false);
+  });
+
   test('não lê nem cria notificações', async ({ request }) => {
     const res = await request.get(rest('notifications?select=*'), { headers });
     if (res.ok()) expect(await res.json()).toEqual([]);
