@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir rápido e funcionar com internet ruim.
 // Arquivos do app: rede primeiro, cache como reserva. Dados do Supabase: sempre da rede.
-const CACHE = 'desapego-v16';
+const CACHE = 'desapego-v17';
 const SHELL = [
   './',
   'index.html',
@@ -38,6 +38,8 @@ self.addEventListener('fetch', (e) => {
   const sameOrigin = url.origin === location.origin;
   const cdn = ['unpkg.com', 'cdn.jsdelivr.net'].includes(url.hostname);
   if (!sameOrigin && !cdn) return;
+  // O ícone da tela de início do iPhone vem direto da rede (o Safari falha às vezes quando passa pelo service worker).
+  if (url.pathname.endsWith('/apple-touch-icon.png')) return;
 
   if (cdn) {
     // Bibliotecas com versão fixa: cache primeiro.
