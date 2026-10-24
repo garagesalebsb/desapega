@@ -49,6 +49,15 @@ test.describe('Banco: visitante sem login', () => {
     expect((await rpc(request, 'chat_unread_count')).ok()).toBe(false);
   });
 
+  test('não dispara notificação do chat nem lê aparelhos sem a senha', async ({ request }) => {
+    expect((await rpc(request, 'message_push_targets', { p_secret: 'errada', p_message: UUID, p_sender: UUID })).ok()).toBe(false);
+    expect((await rpc(request, 'push_targets_for_user', { p_secret: 'errada', p_user: UUID })).ok()).toBe(false);
+    const push = await request.post(`${SUPABASE_URL}/functions/v1/enviar-push`, { headers, data: { message_id: UUID } });
+    expect(push.ok()).toBe(false);
+    const test = await request.post(`${SUPABASE_URL}/functions/v1/enviar-push`, { headers: { ...headers, 'x-push-secret': 'errada' }, data: { test_user: UUID } });
+    expect(test.ok()).toBe(false);
+  });
+
   test('não lê nem cria notificações', async ({ request }) => {
     const res = await request.get(rest('notifications?select=*'), { headers });
     if (res.ok()) expect(await res.json()).toEqual([]);

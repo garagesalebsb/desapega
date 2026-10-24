@@ -1624,12 +1624,14 @@ async function toggleFavorite(saleId) {
 }
 
 // ---------------------------------------------------------------------
-// Lembretes por notificação das vendas salvas (véspera às 19h, dia às 7h)
+// Notificações no celular: mensagens do chat e lembretes das vendas salvas (véspera às 19h, dia às 7h)
 // ---------------------------------------------------------------------
 const REMINDER_TIMES = 'na véspera, às 19h, e no dia, às 7h';
+const PUSH_WHAT = `quando chegar mensagem no chat e ${REMINDER_TIMES} das vendas que você salvou`;
 
-// Logo depois de salvar uma venda, uma vez por semana no máximo. Devolve true se mostrou o convite.
-function offerReminders() {
+// Convite para ativar: depois de salvar uma venda ou de mandar a primeira mensagem, uma vez por semana no máximo.
+// Devolve true se mostrou o convite.
+function offerReminders(reason = 'favorito') {
   if (pushSupport() !== 'ok' || Notification.permission !== 'default') return false;
   try {
     if (Date.now() - (Number(localStorage.getItem('lembrete-oferecido')) || 0) < 7 * 24 * 3600 * 1000) return false;
@@ -1638,10 +1640,10 @@ function offerReminders() {
     return false;
   }
   const { el, close } = openModal(`
-    <h2>Quer um lembrete?</h2>
-    <p class="hint">Avisamos ${REMINDER_TIMES}, das vendas que você salvar. Dá para desligar quando quiser no seu perfil.</p>
+    <h2>${reason === 'chat' ? 'Quer saber quando responderem?' : 'Quer um lembrete?'}</h2>
+    <p class="hint">Avisamos no celular ${PUSH_WHAT}. Dá para desligar quando quiser em Menu &gt; Dados da conta.</p>
     <div class="actions column">
-      <button class="btn primary" data-on>${icon.bell}Ativar lembretes</button>
+      <button class="btn primary" data-on>${icon.bell}Ativar notificações</button>
       <button class="btn" data-close>Agora não</button>
     </div>`);
   el.querySelector('[data-on]').onclick = async () => {
@@ -1654,17 +1656,17 @@ function offerReminders() {
 async function turnOnReminders() {
   try {
     const result = await enableReminders(sb, CONFIG.VAPID_PUBLIC_KEY);
-    if (result === 'ativo') toast(`Pronto! Avisamos ${REMINDER_TIMES}.`);
+    if (result === 'ativo') toast('Pronto! Você vai receber as mensagens e os lembretes no celular.');
     else if (result === 'negado') toast('As notificações ficaram bloqueadas. Libere nas configurações do navegador para este site.', 'error');
     else toast('Este navegador não recebe notificações.', 'error');
     return result === 'ativo';
   } catch (err) {
-    toast('Não foi possível ativar os lembretes.', 'error', err);
+    toast('Não foi possível ativar as notificações.', 'error', err);
     return false;
   }
 }
 
-// Caixa de lembretes: no perfil (completa) e nas favoritas (só o convite, quando ainda não ativou).
+// Caixa de notificações: no perfil (completa) e nas favoritas/conversas (só o convite, quando ainda não ativou).
 async function mountReminders(el, { compact = false } = {}) {
   const support = pushSupport();
   const active = await remindersActive().catch(() => false);
@@ -1674,19 +1676,19 @@ async function mountReminders(el, { compact = false } = {}) {
 
   let body;
   if (support === 'ios-instalar') {
-    body = `<p class="hint">No iPhone, os lembretes chegam com o app na tela de início: toque em Compartilhar e depois em <strong>Adicionar à Tela de Início</strong>. Abra o app por lá e ative aqui.</p>`;
+    body = `<p class="hint">No iPhone, as notificações chegam com o app na tela de início: toque em Compartilhar e depois em <strong>Adicionar à Tela de Início</strong>. Abra o app por lá e ative aqui.</p>`;
   } else if (support === 'sem-suporte') {
-    body = `<p class="hint">Este navegador não recebe notificações. Use a opção "Adicionar à agenda" na página da venda.</p>`;
+    body = `<p class="hint">Este navegador não recebe notificações. As mensagens aparecem na aba Chat, e você pode usar "Adicionar à agenda" na página da venda.</p>`;
   } else if (blocked) {
     body = `<p class="hint">As notificações estão bloqueadas para este site. Libere nas configurações do navegador e volte aqui.</p>`;
   } else if (active) {
-    body = `<p class="hint"><span class="ok">Ativos neste aparelho ✓</span> Avisamos ${REMINDER_TIMES}.</p>
-      <button type="button" class="btn small" data-rem="off">Desativar lembretes</button>`;
+    body = `<p class="hint"><span class="ok">Ativas neste aparelho ✓</span> Avisamos ${PUSH_WHAT}.</p>
+      <button type="button" class="btn small" data-rem="off">Desativar notificações</button>`;
   } else {
-    body = `<p class="hint">Receba um aviso ${REMINDER_TIMES}, das vendas que você salvou.</p>
-      <button type="button" class="btn ${compact ? 'small' : ''} primary" data-rem="on">${icon.bell}Ativar lembretes</button>`;
+    body = `<p class="hint">Receba no celular um aviso ${PUSH_WHAT}.</p>
+      <button type="button" class="btn ${compact ? 'small' : ''} primary" data-rem="on">${icon.bell}Ativar notificações</button>`;
   }
-  el.innerHTML = compact ? `<div class="reminder-box compact">${body}</div>` : `<fieldset class="reminder-box"><legend>${icon.bell} Lembretes das vendas salvas</legend>${body}</fieldset>`;
+  el.innerHTML = compact ? `<div class="reminder-box compact">${body}</div>` : `<fieldset class="reminder-box"><legend>${icon.bell} Notificações no celular</legend>${body}</fieldset>`;
 
   const btn = el.querySelector('[data-rem]');
   if (!btn) return;
@@ -1697,9 +1699,9 @@ async function mountReminders(el, { compact = false } = {}) {
     } else {
       try {
         await disableReminders(sb);
-        toast('Lembretes desativados neste aparelho.');
+        toast('Notificações desativadas neste aparelho.');
       } catch (err) {
-        toast('Não foi possível desativar os lembretes.', 'error', err);
+        toast('Não foi possível desativar as notificações.', 'error', err);
       }
     }
     mountReminders(el, { compact });
@@ -2118,8 +2120,10 @@ async function viewChats(ctx) {
   $view.innerHTML = `
     <div class="chat-page">
       <h1>Conversas</h1>
+      <div id="reminders"></div>
       <div id="chat-list" class="chat-list" aria-busy="true">${'<div class="chat-row"><span class="chat-thumb sk"></span><span class="sk notif-sk"></span></div>'.repeat(4)}</div>
     </div>`;
+  mountReminders(document.getElementById('reminders'), { compact: true });
   const { data, error } = await sb.rpc('my_conversations');
   if (error) throw error;
   if (!ctx.alive()) return;
@@ -2268,6 +2272,9 @@ async function viewConversation(ctx, id) {
     if (messages.some((x) => x.id === data.id)) messages.splice(i, 1); // o tempo real chegou antes
     else messages[i] = data;
     paint();
+    // Avisa o celular da outra pessoa (se ela ativou as notificações). Falha aqui não atrapalha o chat.
+    sb.functions.invoke('enviar-push', { body: { message_id: data.id } }).catch(() => {});
+    offerReminders('chat');
   });
   if (draft) input.focus();
 
