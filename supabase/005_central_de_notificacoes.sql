@@ -84,13 +84,13 @@ begin
   end if;
 
   if (new.starts_on, new.ends_on) is distinct from (old.starts_on, old.ends_on) then
-    what := what || 'data';
+    what := array_append(what, 'data');
   end if;
   if (new.start_time, new.end_time) is distinct from (old.start_time, old.end_time) then
-    what := what || 'horário';
+    what := array_append(what, 'horário');
   end if;
   if (new.address, new.reference, new.region, new.lat, new.lng) is distinct from (old.address, old.reference, old.region, old.lat, old.lng) then
-    what := what || 'endereço';
+    what := array_append(what, 'endereço');
   end if;
   if cardinality(what) = 0 then
     return null;
