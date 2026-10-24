@@ -15,7 +15,7 @@ const config = readFileSync('js/config.js', 'utf8');
 const pick = (key) => config.match(new RegExp(`${key}:\\s*'([^']+)'`))?.[1];
 const SUPABASE_URL = pick('SUPABASE_URL');
 const SUPABASE_ANON_KEY = pick('SUPABASE_ANON_KEY');
-const APP_NAME = pick('APP_NAME') || 'Desapego Brasília';
+const APP_NAME = pick('APP_NAME') || 'Desapega';
 const SITE_URL = (process.env.SITE_URL || '').replace(/\/?$/, '/');
 
 if (!SUPABASE_URL || SUPABASE_URL.includes('SEU-PROJETO')) {
@@ -49,7 +49,7 @@ for (const s of sales) {
   const title = `${s.title} · ${TYPES[s.type]}`;
   const n = s.items.length;
   const desc = `${when}, ${time(s.start_time)}–${time(s.end_time)} · ${s.region}${n ? ` · ${n} ${n === 1 ? 'item' : 'itens'}` : ''}. ${s.description || ''}`.slice(0, 200);
-  const image = s.cover_url || s.items.find((i) => i.photo_url)?.photo_url || `${SITE_URL}icons/og.png`;
+  const image = s.cover_url || s.items.find((i) => i.photo_url)?.photo_url || `${SITE_URL}icons/og.jpg`;
   const target = `../../#/venda/${s.id}`;
   mkdirSync(`${OUT}/v/${s.id}`, { recursive: true });
   writeFileSync(

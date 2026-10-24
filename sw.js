@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir rápido e funcionar com internet ruim.
 // Arquivos do app: rede primeiro, cache como reserva. Dados do Supabase: sempre da rede.
-const CACHE = 'desapego-v9';
+const CACHE = 'desapego-v10';
 const SHELL = [
   './',
   'index.html',
@@ -15,7 +15,8 @@ const SHELL = [
   'js/when.js',
   'js/reminders.js',
   'manifest.webmanifest',
-  'icons/icon.svg',
+  'icons/icon-192.png',
+  'icons/favicon.png',
 ];
 
 self.addEventListener('install', (e) => {
@@ -73,10 +74,10 @@ self.addEventListener('push', (e) => {
   // App aberto: atualiza o número do sininho.
   self.clients.matchAll({ type: 'window' }).then((wins) => wins.forEach((w) => w.postMessage({ type: 'push' })));
   e.waitUntil(
-    self.registration.showNotification(msg.title || 'Desapego Brasília', {
+    self.registration.showNotification(msg.title || 'Desapega', {
       body: msg.body || 'Uma venda que você salvou está chegando.',
       icon: 'icons/icon-192.png',
-      badge: 'icons/icon-192.png',
+      badge: 'icons/badge-96.png',
       tag: msg.tag,
       data: { url: msg.url || './#/minhas?aba=favoritas' },
     }),
