@@ -25,6 +25,7 @@ const state = {
   contact: null,
   favorites: new Set(),
   requireVerification: false,
+  unread: 0,
 };
 
 // ---------------------------------------------------------------------
@@ -183,7 +184,34 @@ async function setUser(user) {
     syncReminders(sb).catch(() => {});
   }
   updateHeader();
+  refreshUnread(true);
 }
+
+// Número no sininho: atualiza ao trocar de tela (no máximo a cada 30 s), ao voltar para o app
+// e quando chega uma notificação no celular.
+let unreadCheckedAt = 0;
+async function refreshUnread(force = false) {
+  if (!state.user) {
+    state.unread = 0;
+    return updateBadge();
+  }
+  if (!force && Date.now() - unreadCheckedAt < 30000) return;
+  unreadCheckedAt = Date.now();
+  const { count, error } = await sb.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null);
+  if (error) return; // falha de rede ou banco ainda sem a central: só não mostra o número
+  state.unread = count || 0;
+  updateBadge();
+}
+
+function updateBadge() {
+  const badge = document.getElementById('notif-badge');
+  badge.hidden = !state.unread;
+  badge.textContent = state.unread > 9 ? '9+' : String(state.unread);
+  document.getElementById('notif-link').setAttribute('aria-label', state.unread ? `Notificações: ${state.unread} nova(s)` : 'Notificações');
+}
+
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && refreshUnread());
+navigator.serviceWorker?.addEventListener('message', (e) => e.data?.type === 'push' && refreshUnread(true));
 
 function updateHeader() {
   const link = document.getElementById('account-link');
@@ -194,6 +222,7 @@ function updateHeader() {
     link.textContent = 'Entrar';
     link.href = '#/entrar';
   }
+  document.getElementById('notif-link').hidden = !state.user;
 }
 
 function requireLogin(next, msg = 'Entre para continuar.') {
@@ -220,6 +249,7 @@ const routes = [
   [/^\/minhas$/, viewMine],
   [/^\/entrar$/, viewLogin],
   [/^\/perfil$/, viewProfile],
+  [/^\/notificacoes$/, viewNotifications],
 ];
 
 // Saindo da página, as buscas em andamento são interrompidas: isso não é erro do app.
@@ -238,6 +268,8 @@ async function render() {
   const params = new URLSearchParams(qs || '');
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === path));
   const ctx = { params, path, alive: () => id === renderId };
+  document.getElementById('notif-link').classList.toggle('active', path === '/notificacoes');
+  if (path !== '/notificacoes') refreshUnread();
   for (const [re, view] of routes) {
     const m = path.match(re);
     if (!m) continue;
@@ -1785,6 +1817,111 @@ async function viewMine(ctx) {
     ${past.length ? `<h2 class="section-title">Encerradas</h2><div class="cards past">${past.map(saleCard).join('')}</div>` : ''}`;
   const reminders = document.getElementById('reminders');
   if (reminders) mountReminders(reminders, { compact: true });
+}
+
+// ---------------------------------------------------------------------
+// Central de notificações (os avisos são criados pelo banco: supabase/005)
+// ---------------------------------------------------------------------
+const CHANGES = { data: 'a data', 'horário': 'o horário', 'endereço': 'o endereço' };
+const joinPt = (list) => (list.length > 1 ? `${list.slice(0, -1).join(', ')} e ${list.at(-1)}` : list[0] || '');
+
+function notificationText(n) {
+  const t = n.sale_title || 'uma venda';
+  switch (n.kind) {
+    case 'lembrete_vespera':
+      return { icon: icon.bell, cls: 'remind', title: `Amanhã: ${t}`, body: 'Uma venda que você salvou começa amanhã. Veja os itens e a rota.' };
+    case 'lembrete_hoje':
+      return { icon: icon.bell, cls: 'remind', title: `Hoje: ${t}`, body: 'Uma venda que você salvou começa hoje. Bom garimpo!' };
+    case 'venda_alterada': {
+      const what = joinPt((n.detail || '').split(',').map((k) => CHANGES[k]).filter(Boolean)) || 'os dados';
+      return { icon: icon.calendar, cls: 'change', title: `Mudou: ${t}`, body: `O vendedor alterou ${what}. Confira antes de ir.` };
+    }
+    case 'venda_cancelada':
+      return { icon: icon.flag, cls: 'cancel', title: `Cancelada: ${t}`, body: 'O vendedor removeu esta venda.' };
+    case 'venda_salva':
+      return {
+        icon: icon.heart, cls: 'saved',
+        title: n.count > 1 ? `${n.count} pessoas salvaram sua venda` : 'Alguém salvou sua venda',
+        body: `"${t}". Quem salva recebe lembrete na véspera e no dia.`,
+      };
+    case 'venda_oculta':
+      return { icon: icon.flag, cls: 'cancel', title: 'Sua venda saiu do ar', body: `"${t}" foi ocultada após denúncias e não aparece mais nas buscas.` };
+    default:
+      return { icon: icon.bell, cls: '', title: t, body: '' };
+  }
+}
+
+function timeAgo(iso) {
+  const min = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (min < 1) return 'agora';
+  if (min < 60) return `há ${min} min`;
+  if (min < 24 * 60) return `há ${Math.round(min / 60)} h`;
+  const d = new Date(iso);
+  if (isoDate(d) === isoDate(addDays(new Date(), -1))) return 'ontem';
+  return d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).replace(/\./g, '');
+}
+
+async function viewNotifications(ctx) {
+  if (!requireLogin('/notificacoes', 'Entre para ver suas notificações.')) return;
+  $view.innerHTML = `
+    <div class="notif-page">
+      <div class="notif-head"><h1>Notificações</h1><span id="notif-tools"></span></div>
+      <div id="notif-list"><div class="notif-list" aria-busy="true" aria-label="Carregando">${'<div class="notif"><span class="notif-icon sk"></span><span class="sk notif-sk"></span></div>'.repeat(4)}</div></div>
+    </div>`;
+
+  const { data, error } = await sb.from('notifications')
+    .select('id,kind,sale_id,sale_title,detail,count,read_at,created_at')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  if (!ctx.alive()) return;
+
+  const list = document.getElementById('notif-list');
+  if (!data.length) {
+    list.innerHTML = `
+      <div class="empty">
+        <h2>Nenhuma notificação ainda</h2>
+        <p>Salve vendas para receber aqui o lembrete na véspera e no dia, e saber se mudarem de data ou endereço.</p>
+        <div id="reminders"></div>
+        <a class="btn" href="#/">Ver vendas</a>
+      </div>`;
+    mountReminders(document.getElementById('reminders'), { compact: true });
+    return;
+  }
+
+  const item = (n) => {
+    const t = notificationText(n);
+    const inner = `
+      <span class="notif-icon ${t.cls}">${t.icon}</span>
+      <span class="notif-text"><strong>${esc(t.title)}</strong><span>${esc(t.body)}</span><time datetime="${esc(n.created_at)}">${timeAgo(n.created_at)}</time></span>`;
+    const cls = `notif ${n.read_at ? '' : 'unread'}`;
+    return n.sale_id ? `<a class="${cls}" href="#/venda/${n.sale_id}">${inner}</a>` : `<div class="${cls}">${inner}</div>`;
+  };
+  const fresh = data.filter((n) => !n.read_at);
+  const old = data.filter((n) => n.read_at);
+  list.innerHTML = `
+    ${fresh.length ? `<h2 class="section-title">Novas</h2><div class="notif-list">${fresh.map(item).join('')}</div>` : ''}
+    ${old.length ? `<h2 class="section-title">Anteriores</h2><div class="notif-list">${old.map(item).join('')}</div>` : ''}
+    <div id="reminders"></div>`;
+  mountReminders(document.getElementById('reminders'), { compact: true });
+
+  const tools = document.getElementById('notif-tools');
+  tools.innerHTML = '<button class="btn small" id="notif-clear">Limpar tudo</button>';
+  document.getElementById('notif-clear').onclick = async () => {
+    const { error } = await sb.from('notifications').delete().eq('user_id', state.user.id);
+    if (error) return toast('Não foi possível limpar as notificações.', 'error', error);
+    toast('Notificações apagadas.');
+    render();
+  };
+
+  // Abriu a central: tudo vira lido (o destaque das novas continua até sair da tela).
+  if (fresh.length) {
+    const { error: readError } = await sb.from('notifications').update({ read_at: new Date().toISOString() }).eq('user_id', state.user.id).is('read_at', null);
+    if (!readError) {
+      state.unread = 0;
+      updateBadge();
+    }
+  }
 }
 
 // ---------------------------------------------------------------------

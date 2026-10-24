@@ -30,6 +30,13 @@ test.describe('Banco: visitante sem login', () => {
     expect((await rpc(request, 'reminders_check_secret', { p_secret: 'errada' })).ok()).toBe(false);
   });
 
+  test('não lê nem cria notificações', async ({ request }) => {
+    const res = await request.get(rest('notifications?select=*'), { headers });
+    if (res.ok()) expect(await res.json()).toEqual([]);
+    const created = await request.post(rest('notifications'), { headers, data: { user_id: UUID, kind: 'venda_salva', sale_title: 'teste' } });
+    expect(created.ok()).toBe(false);
+  });
+
   test('não publica venda nem item', async ({ request }) => {
     const sale = await request.post(rest('sales'), {
       headers,

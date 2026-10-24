@@ -123,6 +123,7 @@ code { background: var(--brand-soft); padding: 1px 5px; border-radius: 4px; }
 .chip-mudanca:not(.on) { border-color: var(--mudanca); color: var(--mudanca); font-weight: 600; }
 
 .home-grid { display: grid; gap: 14px; }
+.home-grid > * { min-width: 0; } /* senão a faixa "Acontecendo agora" alarga a página em vez de rolar */
 .map { height: 240px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); z-index: 0; }
 .map.small { height: 200px; margin: 14px 0; }
 @media (min-width: 860px) {
@@ -402,3 +403,37 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 .install-banner div { flex: 1; display: flex; flex-direction: column; font-size: .85rem; }
 .install-banner span { color: var(--muted); }
 .install-banner .close { background: none; border: 0; font-size: 1.5rem; color: var(--muted); cursor: pointer; padding: 0 4px; }
+
+/* ---------- Central de notificações ---------- */
+.top-actions { display: flex; align-items: center; gap: 6px; }
+.notif-link { position: relative; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; color: var(--ink); }
+.notif-link svg { width: 24px; height: 24px; }
+.notif-link[hidden] { display: none; }
+.notif-link.active { background: var(--brand-soft); color: var(--brand); }
+.notif-badge {
+  position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px;
+  background: var(--danger); color: #fff; font-size: .7rem; font-weight: 700; line-height: 18px; text-align: center;
+  border: 2px solid var(--surface); box-sizing: content-box;
+}
+.notif-page { max-width: 680px; margin: 0 auto; }
+.notif-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.notif-list { display: flex; flex-direction: column; gap: 8px; }
+.notif {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line); color: var(--ink); text-decoration: none;
+}
+.notif.unread { background: var(--brand-soft); border-color: transparent; }
+.notif.unread strong::after { content: ''; display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: var(--brand); vertical-align: middle; }
+.notif-icon { display: grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 50%; background: var(--line); color: var(--ink); }
+.notif-icon svg { width: 20px; height: 20px; }
+.notif-icon.remind { background: color-mix(in srgb, var(--garagem) 18%, var(--surface)); color: var(--garagem); }
+.notif-icon.change { background: color-mix(in srgb, var(--mudanca) 18%, var(--surface)); color: var(--mudanca); }
+.notif-icon.cancel { background: color-mix(in srgb, var(--danger) 16%, var(--surface)); color: var(--danger); }
+.notif-icon.saved { background: color-mix(in srgb, var(--bazar) 18%, var(--surface)); color: var(--bazar); }
+.notif-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.notif-text strong { overflow-wrap: anywhere; }
+.notif-text span { color: var(--muted); font-size: .92rem; }
+.notif-text time { color: var(--muted); font-size: .8rem; }
+.notif-sk { flex: 1; height: 38px; }
+.notif-page .reminder-box.compact { margin-top: 16px; }
+.empty #reminders { max-width: 480px; margin: 0 auto 16px; text-align: left; }

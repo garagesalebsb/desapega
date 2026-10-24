@@ -52,6 +52,7 @@ PWA para encontrar e divulgar **vendas de garagem, bazares e vendas de mudança*
    A cada venda criada ou alterada, o banco pede ao GitHub para republicar o site (~1 min). Sem o token, a prévia sai pela atualização automática a cada 30 minutos.
 
 10. Rode [`supabase/004_lembretes.sql`](supabase/004_lembretes.sql): lembretes por notificação das vendas salvas (véspera às 19h, dia às 7h). O envio é feito pelo workflow **Lembretes das vendas salvas**, que usa os segredos `VAPID_PRIVATE_KEY` e `REMINDERS_SECRET` do repositório (no banco fica só o hash da senha). A chave pública correspondente está em `js/config.js` (`VAPID_PUBLIC_KEY`). No iPhone, os lembretes só funcionam com o app instalado na tela de início (iOS 16.4 ou mais novo).
+11. Rode [`supabase/005_central_de_notificacoes.sql`](supabase/005_central_de_notificacoes.sql): central de notificações do app (sininho no topo). O próprio banco cria os avisos: lembretes, venda salva que mudou de data, horário ou endereço, venda cancelada e, para o vendedor, quantas pessoas salvaram a venda (sem dizer quem).
 
 ### 2. GitHub Pages
 
