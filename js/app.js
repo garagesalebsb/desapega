@@ -6,6 +6,7 @@ import { stripMetadata } from './metadata.js';
 import { initMonitoring, reportError } from './monitoring.js';
 import { saleStatus, distanceKm, formatDistance, googleCalendarUrl, icsFor } from './when.js';
 import { PIX_TYPES, guessPixType, normalizePixKey, formatPixKey, pixPayload, qrSvg, qrImage } from './pix.js';
+import { pushSupport, remindersActive, enableReminders, disableReminders, syncReminders } from './reminders.js';
 
 const $view = document.getElementById('view');
 const configured = !CONFIG.SUPABASE_URL.includes('SEU-PROJETO');
@@ -127,6 +128,7 @@ const icon = {
   flag: '<svg viewBox="0 0 24 24"><path d="M5 21V4m0 0h11l-2 4 2 4H5"/></svg>',
   tag: '<svg viewBox="0 0 24 24"><path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/></svg>',
   calendar: '<svg viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>',
+  bell: '<svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>',
   pix: '<svg viewBox="0 0 24 24"><path d="M12 3.5 20.5 12 12 20.5 3.5 12z"/><path d="M8 12h8"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.2-3.8A8 8 0 1 1 8 19z"/><path d="M9 9.5c.5 2.5 2.5 4.5 5 5l1.2-1.2 2 1-.4 1.6c-4.4.4-9-4.2-8.6-8.6L9.8 7l1 2z"/></svg>',
 };
@@ -178,6 +180,7 @@ async function setUser(user) {
     state.profile = p.data;
     state.contact = c.data;
     state.favorites = new Set((f.data || []).map((r) => r.sale_id));
+    syncReminders(sb).catch(() => {});
   }
   updateHeader();
 }
@@ -766,7 +769,7 @@ async function viewSale(ctx, id) {
       const on = await toggleFavorite(sale.id);
       btn.classList.toggle('on', on);
       btn.querySelector('span').textContent = on ? 'Salva' : 'Salvar';
-      if (on) maybeSuggestInstall('favorite');
+      if (on && !offerReminders()) maybeSuggestInstall('favorite');
     } else if (act === 'status') {
       const prev = item.status;
       item.status = btn.dataset.status;
@@ -1326,6 +1329,89 @@ async function toggleFavorite(saleId) {
   return true;
 }
 
+// ---------------------------------------------------------------------
+// Lembretes por notificação das vendas salvas (véspera às 19h, dia às 7h)
+// ---------------------------------------------------------------------
+const REMINDER_TIMES = 'na véspera, às 19h, e no dia, às 7h';
+
+// Logo depois de salvar uma venda, uma vez por semana no máximo. Devolve true se mostrou o convite.
+function offerReminders() {
+  if (pushSupport() !== 'ok' || Notification.permission !== 'default') return false;
+  try {
+    if (Date.now() - (Number(localStorage.getItem('lembrete-oferecido')) || 0) < 7 * 24 * 3600 * 1000) return false;
+    localStorage.setItem('lembrete-oferecido', String(Date.now()));
+  } catch {
+    return false;
+  }
+  const { el, close } = openModal(`
+    <h2>Quer um lembrete?</h2>
+    <p class="hint">Avisamos ${REMINDER_TIMES}, das vendas que você salvar. Dá para desligar quando quiser no seu perfil.</p>
+    <div class="actions column">
+      <button class="btn primary" data-on>${icon.bell}Ativar lembretes</button>
+      <button class="btn" data-close>Agora não</button>
+    </div>`);
+  el.querySelector('[data-on]').onclick = async () => {
+    close();
+    await turnOnReminders();
+  };
+  return true;
+}
+
+async function turnOnReminders() {
+  try {
+    const result = await enableReminders(sb, CONFIG.VAPID_PUBLIC_KEY);
+    if (result === 'ativo') toast(`Pronto! Avisamos ${REMINDER_TIMES}.`);
+    else if (result === 'negado') toast('As notificações ficaram bloqueadas. Libere nas configurações do navegador para este site.', 'error');
+    else toast('Este navegador não recebe notificações.', 'error');
+    return result === 'ativo';
+  } catch (err) {
+    toast('Não foi possível ativar os lembretes.', 'error', err);
+    return false;
+  }
+}
+
+// Caixa de lembretes: no perfil (completa) e nas favoritas (só o convite, quando ainda não ativou).
+async function mountReminders(el, { compact = false } = {}) {
+  const support = pushSupport();
+  const active = await remindersActive().catch(() => false);
+  if (!el.isConnected) return;
+  const blocked = support === 'ok' && Notification.permission === 'denied';
+  if (compact && (active || blocked || support === 'sem-suporte')) return void (el.innerHTML = '');
+
+  let body;
+  if (support === 'ios-instalar') {
+    body = `<p class="hint">No iPhone, os lembretes chegam com o app na tela de início: toque em Compartilhar e depois em <strong>Adicionar à Tela de Início</strong>. Abra o app por lá e ative aqui.</p>`;
+  } else if (support === 'sem-suporte') {
+    body = `<p class="hint">Este navegador não recebe notificações. Use a opção "Adicionar à agenda" na página da venda.</p>`;
+  } else if (blocked) {
+    body = `<p class="hint">As notificações estão bloqueadas para este site. Libere nas configurações do navegador e volte aqui.</p>`;
+  } else if (active) {
+    body = `<p class="hint"><span class="ok">Ativos neste aparelho ✓</span> Avisamos ${REMINDER_TIMES}.</p>
+      <button type="button" class="btn small" data-rem="off">Desativar lembretes</button>`;
+  } else {
+    body = `<p class="hint">Receba um aviso ${REMINDER_TIMES}, das vendas que você salvou.</p>
+      <button type="button" class="btn ${compact ? 'small' : ''} primary" data-rem="on">${icon.bell}Ativar lembretes</button>`;
+  }
+  el.innerHTML = compact ? `<div class="reminder-box compact">${body}</div>` : `<fieldset class="reminder-box"><legend>${icon.bell} Lembretes das vendas salvas</legend>${body}</fieldset>`;
+
+  const btn = el.querySelector('[data-rem]');
+  if (!btn) return;
+  btn.onclick = async () => {
+    btn.disabled = true;
+    if (btn.dataset.rem === 'on') {
+      await turnOnReminders();
+    } else {
+      try {
+        await disableReminders(sb);
+        toast('Lembretes desativados neste aparelho.');
+      } catch (err) {
+        toast('Não foi possível desativar os lembretes.', 'error', err);
+      }
+    }
+    mountReminders(el, { compact });
+  };
+}
+
 async function shareSale(sale) {
   const url = saleUrl(sale.id);
   const text = `${SALE_TYPES[sale.type].label}: ${sale.title} — ${fmtWhen(sale)}, ${sale.region}`;
@@ -1694,8 +1780,11 @@ async function viewMine(ctx) {
     return;
   }
   el.innerHTML = `
+    ${tab === 'favoritas' && upcoming.length ? '<div id="reminders"></div>' : ''}
     ${upcoming.length ? `<h2 class="section-title">Próximas</h2><div class="cards">${upcoming.map(saleCard).join('')}</div>` : ''}
     ${past.length ? `<h2 class="section-title">Encerradas</h2><div class="cards past">${past.map(saleCard).join('')}</div>` : ''}`;
+  const reminders = document.getElementById('reminders');
+  if (reminders) mountReminders(reminders, { compact: true });
 }
 
 // ---------------------------------------------------------------------
@@ -1787,6 +1876,7 @@ async function viewProfile(ctx) {
       <button class="btn primary big">Salvar</button>
     </form>
     <div class="form">
+      <div id="reminders"></div>
       <button class="btn big" id="logout">Sair da conta</button>
       <details class="danger-zone">
         <summary>Excluir minha conta</summary>
@@ -1859,7 +1949,10 @@ async function viewProfile(ctx) {
     finish();
   });
 
+  mountReminders(document.getElementById('reminders'));
+
   document.getElementById('logout').onclick = async () => {
+    await disableReminders(sb).catch(() => {}); // os avisos desta conta não ficam chegando no aparelho
     await sb.auth.signOut();
     navigate('/');
   };
@@ -1882,6 +1975,7 @@ async function viewProfile(ctx) {
         if (rmError) throw rmError;
         if (!removed?.length) throw new Error('as fotos não puderam ser apagadas.');
       }
+      await disableReminders(sb).catch(() => {});
       const { error } = await sb.rpc('delete_my_account');
       if (error) throw error;
       await sb.auth.signOut({ scope: 'local' });

@@ -19,6 +19,17 @@ test.describe('Banco: visitante sem login', () => {
     expect((await request.get(rest('contact_lookups?select=*'), { headers })).ok()).toBe(false);
   });
 
+  test('não vê os aparelhos inscritos nem os lembretes, e não dispara envios sem a senha', async ({ request }) => {
+    for (const table of ['push_subscriptions', 'reminders_sent']) {
+      const res = await request.get(rest(`${table}?select=*`), { headers });
+      if (res.ok()) expect(await res.json(), table).toEqual([]);
+    }
+    expect((await rpc(request, 'claim_reminders', { p_secret: 'errada', p_kind: 'vespera' })).ok()).toBe(false);
+    expect((await rpc(request, 'forget_push_subscription', { p_secret: 'errada', p_endpoint: 'https://x' })).ok()).toBe(false);
+    expect((await rpc(request, 'save_push_subscription', { p_endpoint: 'https://x', p_p256dh: 'a', p_auth: 'b' })).ok()).toBe(false);
+    expect((await rpc(request, 'reminders_check_secret', { p_secret: 'errada' })).ok()).toBe(false);
+  });
+
   test('não publica venda nem item', async ({ request }) => {
     const sale = await request.post(rest('sales'), {
       headers,
