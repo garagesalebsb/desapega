@@ -546,3 +546,14 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 .review-thumb svg { width: 20px; height: 20px; }
 .review-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .review-row input { width: 100%; text-align: right; }
+
+/* Mapa: botão de centralizar (no estilo dos botões de zoom do Leaflet) */
+.map-recenter { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; background: #fff; color: #333; cursor: pointer; }
+.map-recenter:hover { background: #f4f4f4; }
+.map-recenter svg { width: 18px; height: 18px; stroke-width: 2; }
+
+/* Perto de mim: distância máxima e resumo */
+.near-radius { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: .9rem; color: var(--muted); }
+.near-summary { margin: 0 0 4px; color: var(--muted); }
+.near-summary strong { color: var(--ink); }
+.leaflet-pane svg { width: auto; height: auto; } /* a regra geral de ícones (svg 1.1em) cortava o círculo do 'Perto de mim' */
