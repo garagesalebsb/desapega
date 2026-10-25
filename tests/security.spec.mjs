@@ -71,6 +71,11 @@ test.describe('Banco: visitante sem login', () => {
     expect(created.ok()).toBe(false);
   });
 
+  test('não vê rascunhos nem publica venda dos outros', async ({ request }) => {
+    expect(await (await request.get(rest('sales?select=id&draft=eq.true'), { headers })).json()).toEqual([]);
+    expect((await rpc(request, 'publish_sale', { p_sale: UUID })).ok()).toBe(false);
+  });
+
   test('não publica venda nem item', async ({ request }) => {
     const sale = await request.post(rest('sales'), {
       headers,

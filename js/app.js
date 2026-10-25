@@ -342,7 +342,7 @@ function saleCard(s) {
         ${fav ? `<span class="fav-dot" title="Favorita">${icon.heart}</span>` : ''}
       </div>
       <div class="body">
-        <div class="badges"><span class="badge type-${s.type}">${t.label}</span>${statusBadge(s)}</div>
+        <div class="badges"><span class="badge type-${s.type}">${t.label}</span>${s.draft ? '<span class="badge draft">Rascunho</span>' : statusBadge(s)}</div>
         <h3>${esc(s.title)}</h3>
         <p class="meta">${icon.clock}${fmtWhen(s)}</p>
         <p class="meta">${icon.pin}${dist ? `<strong>${dist}</strong> · ` : ''}${esc(s.region)}${n ? ` · ${n} ${n === 1 ? 'item' : 'itens'}` : ''}</p>
@@ -417,7 +417,7 @@ const STATUS_LABEL = { disponivel: 'Disponível', reservado: 'Reservado', vendid
 // ---------------------------------------------------------------------
 // Início: vendas do fim de semana (mapa + lista)
 // ---------------------------------------------------------------------
-const SALE_LIST_FIELDS = 'id,title,type,region,lat,lng,starts_on,ends_on,start_time,end_time,cover_url,items(count)';
+const SALE_LIST_FIELDS = 'id,title,type,region,lat,lng,starts_on,ends_on,start_time,end_time,cover_url,draft,items(count)';
 
 async function viewHome(ctx) {
   const p = ctx.params;
@@ -481,6 +481,7 @@ async function viewHome(ctx) {
     .from('sales')
     .select(SALE_LIST_FIELDS)
     .eq('hidden', false)
+    .eq('draft', false)
     .gte('ends_on', today())
     .order('starts_on')
     .order('start_time')
@@ -584,9 +585,10 @@ async function viewSearch(ctx) {
 
   let iq = sb
     .from('items')
-    .select('id,title,price,category,photo_url,photos,status,sales!inner(id,title,region,starts_on,ends_on,start_time,end_time,hidden)')
+    .select('id,title,price,category,photo_url,photos,status,sales!inner(id,title,region,starts_on,ends_on,start_time,end_time,hidden,draft)')
     .gte('sales.ends_on', today())
     .eq('sales.hidden', false)
+    .eq('sales.draft', false)
     .neq('status', 'vendido')
     .order('created_at', { ascending: false })
     .limit(60);
@@ -598,6 +600,7 @@ async function viewSearch(ctx) {
         .from('sales')
         .select(SALE_LIST_FIELDS)
         .eq('hidden', false)
+        .eq('draft', false)
         .gte('ends_on', today())
         .or(`title.ilike.%${safe}%,description.ilike.%${safe}%`)
         .order('starts_on')
@@ -671,6 +674,7 @@ async function viewSale(ctx, id) {
           <span class="badge type-${sale.type}">${t.label}</span>
           ${ended ? '<span class="badge muted">Encerrada</span>' : statusBadge(sale)}
           ${sale.hidden ? '<span class="badge danger">Oculta pela moderação</span>' : ''}
+          ${sale.draft ? '<span class="badge draft">Rascunho</span>' : ''}
         </div>
         <h1>${esc(sale.title)}</h1>
         <p class="meta big">${icon.clock}${fmtWhen(sale)}</p>
@@ -688,9 +692,17 @@ async function viewSale(ctx, id) {
         ${isOwner ? '' : `<button class="btn fav ${state.favorites.has(sale.id) ? 'on' : ''}" data-act="fav">${icon.heart}<span>${state.favorites.has(sale.id) ? 'Salva' : 'Salvar'}</span></button>`}
       </div>
 
+      ${isOwner && sale.draft ? `
+        <div class="draft-bar">
+          <strong>Rascunho: só você vê esta venda.</strong>
+          <p>Cadastre os itens, confira os preços (principalmente os sugeridos pela IA) e publique. O link e o cartaz só funcionam depois de publicar.</p>
+          <button class="btn primary" data-act="publish">Revisar preços e publicar</button>
+        </div>` : ''}
+
       ${isOwner ? `
         <div class="owner-bar">
           <strong>${ended ? 'Esta venda já acabou. Vai fazer outra? Duplique e aproveite os itens que sobraram.' : 'Esta venda é sua.'}</strong>
+          ${ended ? `<p class="hint">${photoRetention(sale)}</p>` : ''}
           ${ended ? '<button class="btn small primary" data-act="duplicate">Duplicar para nova data</button>' : ''}
           <a class="btn small" href="#/venda/${sale.id}/cartaz">Cartaz com QR Code</a>
           <a class="btn small" href="#/venda/${sale.id}/editar">Editar venda</a>
@@ -704,8 +716,8 @@ async function viewSale(ctx, id) {
       ${isOwner ? `
         <section class="quick-add">
           <h2>Cadastrar itens</h2>
-          ${ctx.params.has('novo') ? '<p class="hint">Venda criada! Agora fotografe e cadastre os itens. Depois é só compartilhar o link.</p>' : ''}
-          ${ctx.params.has('duplicada') ? '<p class="hint">Venda duplicada! Confira os itens, remova o que não vai levar e cadastre as novidades.</p>' : ''}
+          ${ctx.params.has('novo') ? '<p class="hint">Venda criada como rascunho! Agora fotografe e cadastre os itens. Quando terminar, revise os preços e toque em "Publicar".</p>' : ''}
+          ${ctx.params.has('duplicada') ? '<p class="hint">Venda duplicada como rascunho! Confira os itens, remova o que não vai levar, cadastre as novidades e publique.</p>' : ''}
           <form id="item-form">
             <label class="photo-pick">
               <input type="file" name="photo" accept="image/*" multiple hidden>
@@ -727,6 +739,7 @@ async function viewSale(ctx, id) {
             </div>
           </form>
           <button type="button" class="btn batch-open" data-act="batch">${icon.camera}Vários itens de uma vez (fotos em lote)</button>
+          <p class="hint">${PHOTO_RETENTION_TEXT}</p>
         </section>` : ''}
 
       <section>
@@ -762,7 +775,7 @@ async function viewSale(ctx, id) {
         <div class="item status-${it.status}" data-id="${it.id}">
           <button class="photo" data-act="view-item" aria-label="Ver fotos de ${esc(it.title)}">${itemPhoto(it)}${it.status !== 'disponivel' ? `<span class="status-tag">${STATUS_LABEL[it.status]}</span>` : ''}</button>
           <div class="info">
-            <strong>${brl(it.price)}</strong>
+            <strong>${brl(it.price)}${isOwner && it.ai_price ? ' <span class="ai-price" title="Preço sugerido pela IA, ainda não revisado">IA</span>' : ''}</strong>
             <span class="title">${esc(it.title)}</span>
             <small>${CATEGORIES[it.category] || ''}</small>
             ${isOwner
@@ -860,6 +873,8 @@ async function viewSale(ctx, id) {
       openItemViewer(sale, item, { isOwner, ended, hasPix, onAction: (a) => handleItemAction(a, item) });
     } else if (['edit-item', 'pix', 'delete-item'].includes(act)) {
       handleItemAction(act, item);
+    } else if (act === 'publish') {
+      openPublish(sale, () => render());
     } else if (act === 'delete-sale') {
       if (!confirm('Excluir esta venda e todos os itens? Isso não pode ser desfeito.')) return;
       const { error } = await sb.from('sales').delete().eq('id', sale.id);
@@ -921,6 +936,7 @@ function setupItemForm(sale, renderItems, sortItems) {
         sale_id: sale.id,
         title: form.title.value.trim(),
         price: parsePrice(form.price.value),
+        ai_price: aiPriceKept(form),
         category: form.category.value,
         description: form.description.value.trim() || null,
         photo_url,
@@ -937,6 +953,7 @@ function setupItemForm(sale, renderItems, sortItems) {
       }
       localStorage.setItem('ultima-categoria', row.category);
       form.reset();
+      delete form.price.dataset.ai;
       files = [];
       form.category.value = row.category;
       preview.hidden = true;
@@ -1001,8 +1018,14 @@ function applyAI(f, ai) {
   if (ai.title && !f.title.value.trim()) f.title.value = ai.title;
   if (ai.description && !f.description.value.trim()) f.description.value = ai.description;
   if (ai.category && CATEGORIES[ai.category] && f.category.dataset.touched !== '1') f.category.value = ai.category;
-  if (ai.price != null && !f.price.value.trim()) f.price.value = String(ai.price);
+  if (ai.price != null && !f.price.value.trim()) {
+    f.price.value = String(ai.price);
+    f.price.dataset.ai = f.price.value; // marcado para revisão antes de publicar
+  }
 }
+
+// O preço continua o que a IA sugeriu? (se a pessoa mexeu, já é um preço revisado)
+const aiPriceKept = (f) => !!f.price.dataset.ai && f.price.value.trim() === f.price.dataset.ai;
 
 async function fillWithAI(f, file, hint, current) {
   if (aiAvailable === false) return;
@@ -1041,6 +1064,72 @@ async function mapLimit(list, limit, fn) {
 // Cadastro em lote: cada foto vira um item; a IA preenche, a pessoa confere e salva tudo.
 // ---------------------------------------------------------------------
 const MAX_BATCH = 30;
+
+// Fotos guardadas até 30 dias depois do fim da venda (limpeza diária: workflow limpeza-fotos.yml).
+const PHOTO_DAYS = 30;
+const PHOTO_RETENTION_TEXT = `As fotos ficam guardadas até ${PHOTO_DAYS} dias depois do fim da venda e depois são apagadas automaticamente. A venda e os itens continuam no seu histórico; ao duplicar a venda, as fotos dos itens copiados ficam.`;
+function photoRetention(sale) {
+  const day = (iso) => Date.UTC(...iso.split('-').map((n, i) => Number(n) - (i === 1 ? 1 : 0))) / 864e5;
+  // A limpeza das 6h apaga quando a venda passou de PHOTO_DAYS dias encerrada.
+  const left = day(sale.ends_on) + PHOTO_DAYS + 1 - day(today());
+  if (left <= 0) return `As fotos desta venda foram apagadas ${PHOTO_DAYS} dias depois do fim, como acontece com todas as vendas encerradas.`;
+  return `As fotos desta venda serão apagadas ${left === 1 ? 'amanhã cedo' : `em ${left} dias`} (${PHOTO_DAYS} dias depois do fim). Duplique a venda para continuar usando as fotos dos itens que sobraram.`;
+}
+
+// Antes de publicar, o vendedor confere todos os preços; os sugeridos pela IA aparecem destacados.
+function openPublish(sale, done) {
+  const items = sale.items.filter((i) => i.status !== 'vendido');
+  const aiCount = items.filter((i) => i.ai_price).length;
+  const { el, close } = openModal(`
+    <h2>Revisar preços e publicar</h2>
+    ${items.length
+      ? `<p class="hint">${aiCount ? `<strong>${aiCount} preço${aiCount === 1 ? '' : 's'} sugerido${aiCount === 1 ? '' : 's'} pela IA</strong> (marcados com IA). ` : ''}Confira cada valor: a IA erra, principalmente em itens usados ou de marca.</p>`
+      : '<p class="hint">Você ainda não cadastrou itens. Dá para publicar assim e cadastrar depois, mas vendas com fotos e preços atraem bem mais gente.</p>'}
+    <form id="publish-form">
+      <div class="review-list">
+        ${items.map((it) => `
+          <label class="review-row ${it.ai_price ? 'ai' : ''}">
+            <span class="review-thumb">${thumb(itemPhotos(it)[0])}</span>
+            <span class="review-title">${esc(it.title)}${it.ai_price ? ' <span class="ai-price">IA</span>' : ''}</span>
+            <input name="p-${it.id}" inputmode="decimal" value="${it.price == null ? '' : esc(String(Number(it.price)).replace('.', ','))}" placeholder="R$" aria-label="Preço de ${esc(it.title)}">
+          </label>`).join('')}
+      </div>
+      ${items.length ? '<label class="check"><input type="checkbox" name="ok" required> Revisei todos os preços</label>' : ''}
+      <div class="actions">
+        <button type="button" class="btn" data-close>Voltar</button>
+        <button class="btn primary">Publicar venda</button>
+      </div>
+    </form>`, 'publish-modal', { keep: true });
+
+  const form = el.querySelector('form');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector('button.primary');
+    btn.disabled = true;
+    btn.textContent = 'Publicando…';
+    try {
+      const changed = items
+        .map((it) => ({ it, price: parsePrice(form[`p-${it.id}`].value) }))
+        .filter(({ it, price }) => price !== (it.price == null ? null : Number(it.price)));
+      await mapLimit(changed, 3, async ({ it, price }) => {
+        const { error } = await sb.from('items').update({ price, ai_price: false }).eq('id', it.id);
+        if (error) throw new Error(`Erro ao salvar o preço de "${it.title}": ${error.message}`);
+        it.price = price;
+      });
+      const { error } = await sb.rpc('publish_sale', { p_sale: sale.id });
+      if (error) throw new Error(`Erro ao publicar: ${error.message}`);
+      sale.draft = false;
+      sale.items.forEach((i) => (i.ai_price = false));
+      close();
+      toast('Venda publicada! Agora é só compartilhar o link.');
+      done();
+    } catch (err) {
+      toast(err.message, 'error', err);
+      btn.disabled = false;
+      btn.textContent = 'Publicar venda';
+    }
+  });
+}
 
 function openBatch(sale, done) {
   const rows = []; // { file, el, url, removed }
@@ -1126,6 +1215,7 @@ function openBatch(sale, done) {
         sale_id: sale.id,
         title: r.f.title.value.trim(),
         price: parsePrice(r.f.price.value),
+        ai_price: aiPriceKept(r.f),
         category: r.f.category.value,
         description: r.f.description.value.trim() || null,
         photo_url: r.url,
@@ -1284,6 +1374,7 @@ function openItemEditor(sale, item, done) {
       const changes = {
         title: form.title.value.trim(),
         price: parsePrice(form.price.value),
+        ai_price: aiPriceKept(form) || (item.ai_price && parsePrice(form.price.value) === Number(item.price)),
         category: form.category.value,
         description: form.description.value.trim() || null,
         photos: urls,

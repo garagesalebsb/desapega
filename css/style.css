@@ -529,3 +529,18 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 .menu-go svg { width: 18px; height: 18px; }
 .menu-count { min-width: 22px; height: 22px; padding: 0 6px; border-radius: 99px; background: var(--danger); color: #fff; font-size: .75rem; font-weight: 700; display: grid; place-items: center; }
 .menu-logout { width: 100%; }
+
+/* Rascunho e revisão de preços antes de publicar */
+.badge.draft { background: color-mix(in srgb, var(--mudanca) 16%, transparent); color: var(--mudanca); }
+.draft-bar { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: var(--radius); border: 1.5px dashed var(--mudanca); background: color-mix(in srgb, var(--mudanca) 7%, var(--surface)); }
+.draft-bar p { margin: 0; color: var(--muted); font-size: .92rem; }
+.draft-bar .btn { align-self: flex-start; }
+.ai-price { display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .03em; padding: 1px 5px; border-radius: 6px; vertical-align: 2px; background: color-mix(in srgb, var(--mudanca) 16%, transparent); color: var(--mudanca); }
+.review-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.review-row { display: grid; grid-template-columns: 44px 1fr 96px; align-items: center; gap: 10px; padding: 6px; border-radius: 10px; border: 1px solid var(--line); }
+.review-row.ai { border-color: color-mix(in srgb, var(--mudanca) 55%, transparent); background: color-mix(in srgb, var(--mudanca) 6%, transparent); }
+.review-thumb { width: 44px; height: 44px; border-radius: 8px; overflow: hidden; background: var(--line); display: grid; place-items: center; }
+.review-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.review-thumb svg { width: 20px; height: 20px; }
+.review-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.review-row input { width: 100%; text-align: right; }

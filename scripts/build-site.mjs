@@ -36,7 +36,7 @@ const time = (t) => {
 const since = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
 const url =
   `${SUPABASE_URL}/rest/v1/sales?select=id,title,description,type,region,starts_on,ends_on,start_time,end_time,cover_url,items(photo_url)` +
-  `&hidden=eq.false&ends_on=gte.${since}&order=starts_on&limit=2000`;
+  `&hidden=eq.false&draft=eq.false&ends_on=gte.${since}&order=starts_on&limit=2000`;
 const res = await fetch(url, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } });
 if (!res.ok) {
   console.error('Falha ao ler vendas do Supabase:', res.status, await res.text());
