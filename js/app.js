@@ -430,6 +430,8 @@ function askPosition() {
 
 const MAX_PHOTOS = 6;
 const itemPhotos = (it) => (it.photos?.length ? it.photos : it.photo_url ? [it.photo_url] : []);
+// Item de venda "só fotos" pode não ter título (a IA grava um escondido quando consegue).
+const itemTitle = (it) => it.title || 'Item sem título';
 
 // Fotos enviadas a partir de agora têm uma miniatura ao lado (abc.f.webp → abc.t.webp), usada em
 // listas, cards e chat. Fotos antigas e de fora do app continuam usando a própria foto.
@@ -677,7 +679,7 @@ async function viewSearch(ctx) {
 
   let iq = sb
     .from('items')
-    .select('id,title,price,category,photo_url,photos,status,sales!inner(id,title,region,starts_on,ends_on,start_time,end_time,hidden,draft)')
+    .select('id,title,price,category,photo_url,photos,status,sales!inner(id,title,region,starts_on,ends_on,start_time,end_time,hidden,draft,photos_only)')
     .gte('sales.ends_on', today())
     .eq('sales.hidden', false)
     .eq('sales.draft', false)
@@ -716,8 +718,8 @@ async function viewSearch(ctx) {
           <a class="item status-${it.status}" href="#/venda/${it.sales.id}">
             <div class="photo">${itemPhoto(it)}${it.status !== 'disponivel' ? `<span class="status-tag">${STATUS_LABEL[it.status]}</span>` : ''}</div>
             <div class="info">
-              <strong>${brl(it.price)}</strong>
-              <span class="title">${esc(it.title)}</span>
+              <strong>${it.sales.photos_only ? 'Pergunte o preço' : brl(it.price)}</strong>
+              <span class="title">${esc(it.sales.photos_only ? it.sales.title : itemTitle(it))}</span>
               <small>${esc(it.sales.region)} · ${fmtDay(it.sales.starts_on)}</small>
             </div>
           </a>`).join('')}
@@ -748,6 +750,7 @@ async function viewSale(ctx, id) {
   }
 
   const isOwner = state.user?.id === sale.owner_id;
+  const photosOnly = !!sale.photos_only; // venda "só fotos": itens sem título, preço nem descrição
   const status = saleStatus(sale);
   const ended = status.key === 'encerrada';
   const me = myPosition();
@@ -788,8 +791,8 @@ async function viewSale(ctx, id) {
       ${isOwner && sale.draft ? `
         <div class="draft-bar">
           <strong>Rascunho: só você vê esta venda.</strong>
-          <p>Cadastre os itens, confira os preços (principalmente os sugeridos pela IA) e publique. O link e o cartaz só funcionam depois de publicar.</p>
-          <button class="btn primary" data-act="publish">Revisar preços e publicar</button>
+          <p>${photosOnly ? 'Adicione as fotos dos itens e publique.' : 'Cadastre os itens, confira os preços (principalmente os sugeridos pela IA) e publique.'} O link e o cartaz só funcionam depois de publicar.</p>
+          <button class="btn primary" data-act="publish">${photosOnly ? 'Publicar venda' : 'Revisar preços e publicar'}</button>
         </div>` : ''}
 
       ${isOwner ? `
@@ -807,7 +810,18 @@ async function viewSale(ctx, id) {
       ${sale.description ? `<p class="description">${esc(sale.description).replace(/\n/g, '<br>')}</p>` : ''}
       <div id="sale-map" class="map small"></div>
 
-      ${isOwner ? `
+      ${isOwner && photosOnly ? `
+        <section class="quick-add">
+          <h2>Adicionar fotos</h2>
+          ${ctx.params.has('novo') ? '<p class="hint">Venda criada como rascunho! Agora tire as fotos dos itens. Quando terminar, toque em "Publicar".</p>' : ''}
+          ${ctx.params.has('duplicada') ? '<p class="hint">Venda duplicada como rascunho! Remova as fotos do que não vai levar, adicione as novidades e publique.</p>' : ''}
+          <label class="btn primary photo-only-add">${icon.camera}<span>Adicionar fotos</span><input type="file" id="photo-only-input" accept="image/*" multiple hidden></label>
+          <p class="hint">Cada foto vira um item, sem precisar escrever nada. Toque numa foto para marcar como reservada ou vendida, ou para remover.</p>
+          <div id="photo-uploads" class="photo-grid"></div>
+          <p class="hint">${PHOTO_RETENTION_TEXT}</p>
+        </section>` : ''}
+
+      ${isOwner && !photosOnly ? `
         <section class="quick-add">
           <h2>Cadastrar itens</h2>
           ${ctx.params.has('novo') ? '<p class="hint">Venda criada como rascunho! Agora fotografe e cadastre os itens. Quando terminar, revise os preços e toque em "Publicar".</p>' : ''}
@@ -838,7 +852,8 @@ async function viewSale(ctx, id) {
 
       <section>
         <h2 class="section-title" id="items-title"></h2>
-        <div id="items" class="items-grid"></div>
+        ${photosOnly && !isOwner ? `<p class="hint">Preços: ${sale.owner?.chat_enabled === false ? 'veja no local' : 'pergunte no chat ou veja no local'}.</p>` : ''}
+        <div id="items" class="${photosOnly ? 'photo-grid' : 'items-grid'}"></div>
       </section>
 
       ${isOwner ? '' : `
@@ -861,17 +876,30 @@ async function viewSale(ctx, id) {
 
   const renderItems = () => {
     const avail = sale.items.filter((i) => i.status === 'disponivel').length;
-    document.getElementById('items-title').textContent = sale.items.length
-      ? `Itens (${avail} disponíve${avail === 1 ? 'l' : 'is'} de ${sale.items.length})`
+    const n = sale.items.length;
+    document.getElementById('items-title').textContent = n
+      ? photosOnly
+        ? `Itens (${n} foto${n === 1 ? '' : 's'}${avail < n ? `, ${avail} disponíve${avail === 1 ? 'l' : 'is'}` : ''})`
+        : `Itens (${avail} disponíve${avail === 1 ? 'l' : 'is'} de ${n})`
       : isOwner ? 'Nenhum item cadastrado ainda' : 'O vendedor ainda não cadastrou itens';
+    if (photosOnly) {
+      // Só fotos: grade de fotos; tocar abre a foto grande com as ações.
+      document.getElementById('items').innerHTML = sale.items
+        .map((it) => `
+          <div class="item photo-tile status-${it.status}" data-id="${it.id}">
+            <button class="photo" data-act="view-item" aria-label="Ver foto ${sale.items.indexOf(it) + 1}">${itemPhoto(it)}${it.status !== 'disponivel' ? `<span class="status-tag">${STATUS_LABEL[it.status]}</span>` : ''}</button>
+          </div>`)
+        .join('');
+      return;
+    }
     document.getElementById('items').innerHTML = sale.items
       .map(
         (it) => `
         <div class="item status-${it.status}" data-id="${it.id}">
-          <button class="photo" data-act="view-item" aria-label="Ver fotos de ${esc(it.title)}">${itemPhoto(it)}${it.status !== 'disponivel' ? `<span class="status-tag">${STATUS_LABEL[it.status]}</span>` : ''}</button>
+          <button class="photo" data-act="view-item" aria-label="Ver fotos de ${esc(itemTitle(it))}">${itemPhoto(it)}${it.status !== 'disponivel' ? `<span class="status-tag">${STATUS_LABEL[it.status]}</span>` : ''}</button>
           <div class="info">
             <strong>${brl(it.price)}${isOwner && it.ai_price ? ' <span class="ai-price" title="Preço sugerido pela IA, ainda não revisado">IA</span>' : ''}</strong>
-            <span class="title">${esc(it.title)}</span>
+            <span class="title">${esc(itemTitle(it))}</span>
             <small>${CATEGORIES[it.category] || ''}</small>
             ${isOwner
               ? `<div class="status-toggle">
@@ -912,6 +940,20 @@ async function viewSale(ctx, id) {
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
   };
 
+  const setStatus = async (item, status) => {
+    const prev = item.status;
+    item.status = status;
+    sortItems();
+    renderItems();
+    const { error } = await sb.from('items').update({ status }).eq('id', item.id);
+    if (error) {
+      item.status = prev;
+      sortItems();
+      renderItems();
+      toast('Não foi possível atualizar o item.', 'error', error);
+    }
+  };
+
   const handleItemAction = async (act, item) => {
     if (act === 'interest') {
       chat(item, 'Olá! Tenho interesse. Ainda está disponível?');
@@ -923,8 +965,10 @@ async function viewSale(ctx, id) {
         sortItems();
         renderItems();
       });
+    } else if (act.startsWith('status:')) {
+      setStatus(item, act.slice(7));
     } else if (act === 'delete-item') {
-      if (!confirm(`Remover "${item.title}"?`)) return;
+      if (!confirm(photosOnly ? 'Remover esta foto?' : `Remover "${itemTitle(item)}"?`)) return;
       const { error } = await sb.from('items').delete().eq('id', item.id);
       if (error) return toast(error.message, 'error', error);
       removeStoredPhotos(itemPhotos(item).filter((u) => u !== sale.cover_url));
@@ -953,19 +997,9 @@ async function viewSale(ctx, id) {
       btn.querySelector('span').textContent = on ? 'Salva' : 'Salvar';
       if (on && !offerReminders()) maybeSuggestInstall('favorite');
     } else if (act === 'status') {
-      const prev = item.status;
-      item.status = btn.dataset.status;
-      sortItems();
-      renderItems();
-      const { error } = await sb.from('items').update({ status: item.status }).eq('id', item.id);
-      if (error) {
-        item.status = prev;
-        sortItems();
-        renderItems();
-        toast('Não foi possível atualizar o item.', 'error', error);
-      }
+      setStatus(item, btn.dataset.status);
     } else if (act === 'view-item') {
-      openItemViewer(sale, item, { isOwner, ended, hasPix, chatOn, onAction: (a) => handleItemAction(a, item) });
+      openItemViewer(sale, item, { isOwner, ended, hasPix, chatOn, photosOnly, onAction: (a) => handleItemAction(a, item) });
     } else if (['edit-item', 'pix', 'delete-item'].includes(act)) {
       handleItemAction(act, item);
     } else if (act === 'publish') {
@@ -993,8 +1027,61 @@ async function viewSale(ctx, id) {
   };
   cleanup.push(() => ($view.onclick = null));
 
-  if (isOwner) setupItemForm(sale, renderItems, sortItems);
+  if (isOwner && photosOnly) setupPhotoOnly(sale, renderItems, sortItems);
+  else if (isOwner) setupItemForm(sale, renderItems, sortItems);
   else maybeSuggestInstall('view-sale');
+}
+
+// Venda "só fotos": cada foto escolhida vira um item, sem nada para preencher.
+function setupPhotoOnly(sale, renderItems, sortItems) {
+  const input = document.getElementById('photo-only-input');
+  const box = document.getElementById('photo-uploads');
+  input.addEventListener('change', async () => {
+    const files = [...input.files].slice(0, MAX_BATCH);
+    if (input.files.length > MAX_BATCH) toast(`Até ${MAX_BATCH} fotos por vez. Envie estas e depois as outras.`);
+    input.value = '';
+    if (!files.length) return;
+    const tiles = files.map(() => {
+      const tile = document.createElement('div');
+      tile.className = 'photo-tile uploading';
+      tile.innerHTML = '<span>Enviando…</span>';
+      box.append(tile);
+      return tile;
+    });
+    let failed = 0;
+    await mapLimit(files, 3, async (file, i) => {
+      try {
+        const url = await uploadPhoto(file);
+        const { data, error } = await sb.from('items').insert({ sale_id: sale.id, title: null, category: 'outros', photo_url: url, photos: [url] }).select().single();
+        if (error) throw error;
+        sale.items.unshift(data);
+        if (!sale.cover_url) {
+          sale.cover_url = url;
+          await sb.from('sales').update({ cover_url: url }).eq('id', sale.id);
+        }
+        tiles[i].remove();
+        sortItems();
+        renderItems();
+        describeHidden(data, file);
+      } catch (err) {
+        failed++;
+        tiles[i].classList.replace('uploading', 'failed');
+        tiles[i].innerHTML = '<span>Não enviou</span>';
+        console.warn(err);
+      }
+    });
+    if (failed) toast(`${failed} foto${failed === 1 ? '' : 's'} não ${failed === 1 ? 'foi enviada' : 'foram enviadas'}. Tente de novo.`, 'error');
+  });
+}
+
+// Título e categoria escondidos (só para a busca e o chat). Sem IA, o item fica só com a foto.
+async function describeHidden(item, file) {
+  const ai = await describePhoto(file).catch(() => null);
+  const title = ai?.title?.trim().slice(0, 120);
+  if (!title || title.length < 2) return;
+  const changes = { title, category: CATEGORIES[ai.category] ? ai.category : item.category };
+  const { error } = await sb.from('items').update(changes).eq('id', item.id);
+  if (!error) Object.assign(item, changes);
 }
 
 function setupItemForm(sale, renderItems, sortItems) {
@@ -1173,11 +1260,15 @@ function photoRetention(sale) {
 
 // Antes de publicar, o vendedor confere todos os preços; os sugeridos pela IA aparecem destacados.
 function openPublish(sale, done) {
-  const items = sale.items.filter((i) => i.status !== 'vendido');
+  // Venda "só fotos" não tem preços para revisar.
+  const items = sale.photos_only ? [] : sale.items.filter((i) => i.status !== 'vendido');
   const aiCount = items.filter((i) => i.ai_price).length;
+  const n = sale.items.length;
   const { el, close } = openModal(`
-    <h2>Revisar preços e publicar</h2>
-    ${items.length
+    <h2>${sale.photos_only ? 'Publicar venda' : 'Revisar preços e publicar'}</h2>
+    ${sale.photos_only
+      ? `<p class="hint">${n ? `Venda só com fotos: <strong>${n} foto${n === 1 ? '' : 's'}</strong>. Confira se está tudo certo e publique.` : 'Você ainda não adicionou fotos. Dá para publicar assim e adicionar depois, mas vendas com fotos atraem bem mais gente.'}</p>`
+      : items.length
       ? `<p class="hint">${aiCount ? `<strong>${aiCount} preço${aiCount === 1 ? '' : 's'} sugerido${aiCount === 1 ? '' : 's'} pela IA</strong> (marcados com IA). ` : ''}Confira cada valor: a IA erra, principalmente em itens usados ou de marca.</p>`
       : '<p class="hint">Você ainda não cadastrou itens. Dá para publicar assim e cadastrar depois, mas vendas com fotos e preços atraem bem mais gente.</p>'}
     <form id="publish-form">
@@ -1333,23 +1424,30 @@ function openBatch(sale, done) {
 }
 
 // Fotos do item em tela cheia, com as ações de compra.
-function openItemViewer(sale, item, { isOwner, ended, hasPix, chatOn = true, onAction }) {
+function openItemViewer(sale, item, { isOwner, ended, hasPix, chatOn = true, photosOnly = false, onAction }) {
   const photos = itemPhotos(item);
   const canBuy = !isOwner && item.status === 'disponivel' && !ended;
   const { el, close } = openModal(`
     ${photos.length ? `
       <div class="gallery">${photos.map((u) => `<img src="${esc(u)}" alt="">`).join('')}</div>
       ${photos.length > 1 ? `<div class="dots">${photos.map((_, i) => `<span class="${i === 0 ? 'on' : ''}"></span>`).join('')}</div>` : ''}` : ''}
-    <div>
+    ${photosOnly
+      ? `<p class="meta">${item.status !== 'disponivel' ? `<strong>${STATUS_LABEL[item.status]}</strong> · ` : ''}${chatOn ? 'Pergunte o preço no chat ou veja no local.' : 'Veja o preço no local.'}</p>`
+      : `<div>
       <strong class="price">${brl(item.price)}</strong>
-      <h2>${esc(item.title)}</h2>
+      <h2>${esc(itemTitle(item))}</h2>
       <p class="meta">${CATEGORIES[item.category] || ''}${item.status !== 'disponivel' ? ` · ${STATUS_LABEL[item.status]}` : ''}</p>
       ${item.description ? `<p class="item-desc">${esc(item.description).replace(/\n/g, '<br>')}</p>` : ''}
-    </div>
+    </div>`}
+    ${isOwner && photosOnly ? `
+      <div class="status-toggle" role="group" aria-label="Situação">
+        ${Object.entries(STATUS_LABEL).map(([k, v]) => `<button data-a="status:${k}" class="${item.status === k ? 'on' : ''}">${v}</button>`).join('')}
+      </div>` : ''}
     <div class="actions">
       ${canBuy && chatOn ? `<button class="btn primary" data-a="interest">${icon.chat}Tenho interesse: conversar</button>` : ''}
-      ${canBuy && hasPix && Number(item.price) > 0 ? `<button class="btn pix" data-a="pix">${icon.pix}Pagar com Pix</button>` : ''}
-      ${isOwner ? '<button class="btn" data-a="edit-item">Editar item</button>' : ''}
+      ${canBuy && hasPix && !photosOnly && Number(item.price) > 0 ? `<button class="btn pix" data-a="pix">${icon.pix}Pagar com Pix</button>` : ''}
+      ${isOwner && !photosOnly ? '<button class="btn" data-a="edit-item">Editar item</button>' : ''}
+      ${isOwner && photosOnly ? '<button class="btn danger" data-a="delete-item">Remover foto</button>' : ''}
       <button class="btn" data-close>Fechar</button>
     </div>`, 'viewer');
   const gallery = el.querySelector('.gallery');
@@ -1605,7 +1703,7 @@ function openDuplicate(sale) {
     btn.disabled = true;
     btn.textContent = 'Duplicando…';
     try {
-      const fields = ['title', 'description', 'type', 'region', 'address', 'reference', 'lat', 'lng', 'start_time', 'end_time', 'cover_url'];
+      const fields = ['title', 'description', 'type', 'region', 'address', 'reference', 'lat', 'lng', 'start_time', 'end_time', 'cover_url', 'photos_only'];
       const row = Object.fromEntries(fields.map((f) => [f, sale[f]]));
       const { data: copy, error } = await sb
         .from('sales')
@@ -1684,12 +1782,12 @@ async function viewPoster(ctx, id) {
         ${sale.reference ? `<p class="poster-ref">${esc(sale.reference)}</p>` : ''}
         ${highlights.length ? `
           <div class="poster-items" id="poster-items">
-            ${highlights.map((i) => `<figure><img src="${esc(itemPhotos(i)[0])}" alt=""><figcaption>${brl(i.price)}</figcaption></figure>`).join('')}
+            ${highlights.map((i) => `<figure><img src="${esc(itemPhotos(i)[0])}" alt="">${sale.photos_only ? '' : `<figcaption>${brl(i.price)}</figcaption>`}</figure>`).join('')}
           </div>` : ''}
         <div class="poster-qr">
           <div class="qr" id="poster-qr"></div>
           <div>
-            <strong>Veja todos os itens e preços</strong>
+            <strong>${sale.photos_only ? 'Veja as fotos de todos os itens' : 'Veja todos os itens e preços'}</strong>
             <p>Aponte a câmera do celular para o código</p>
             <p class="poster-url">${esc(site)}</p>
           </div>
@@ -1793,7 +1891,7 @@ async function buildPosterImage(sale, url, where) {
   g.fillStyle = '#1c2319';
   g.font = font(700, 40);
   g.textAlign = 'center';
-  g.fillText('Veja todos os itens e preços', W / 2, qy + size + 70);
+  g.fillText(sale.photos_only ? 'Veja as fotos de todos os itens' : 'Veja todos os itens e preços', W / 2, qy + size + 70);
   g.fillStyle = '#626b5d';
   g.font = font(500, 32);
   g.fillText(`${CONFIG.APP_NAME} · aponte a câmera ou toque no link`, W / 2, qy + size + 120);
@@ -2102,6 +2200,18 @@ async function viewSaleForm(ctx, id) {
         <textarea name="description" rows="3" maxlength="2000" placeholder="O que vai ter, formas de pagamento (Pix, dinheiro), se precisa levar sacola…">${esc(v.description)}</textarea>
       </label>
 
+      <fieldset class="type-pick">
+        <legend>Como mostrar os itens</legend>
+        <label class="type-opt">
+          <input type="radio" name="photos_only" value="0" ${v.photos_only ? '' : 'checked'}>
+          <span><strong>Com detalhes</strong><small>Título, preço e categoria de cada item (a IA ajuda a preencher)</small></span>
+        </label>
+        <label class="type-opt">
+          <input type="radio" name="photos_only" value="1" ${v.photos_only ? 'checked' : ''}>
+          <span><strong>Só fotos</strong><small>Você só tira as fotos; o comprador pergunta o preço no chat ou vê no local</small></span>
+        </label>
+      </fieldset>
+
       <div class="row">
         <label>Data de início<input type="date" name="starts_on" required value="${v.starts_on}" min="${sale ? '' : today()}"></label>
         <label>Último dia<input type="date" name="ends_on" required value="${v.ends_on}"></label>
@@ -2138,7 +2248,7 @@ async function viewSaleForm(ctx, id) {
         <img alt="" ${v.cover_url ? `src="${esc(v.cover_url)}"` : 'hidden'}>
       </label>
 
-      <button class="btn primary big">${sale ? 'Salvar alterações' : 'Publicar e cadastrar itens'}</button>
+      <button class="btn primary big">${sale ? 'Salvar alterações' : 'Criar venda e cadastrar itens'}</button>
     </form>`;
 
   const form = document.getElementById('sale-form');
@@ -2213,6 +2323,7 @@ async function viewSaleForm(ctx, id) {
         reference: form.reference.value.trim() || null,
         lat: pos[0],
         lng: pos[1],
+        photos_only: form.photos_only.value === '1',
       };
       const res = sale
         ? await sb.from('sales').update(row).eq('id', sale.id).select('id').single()
@@ -2231,12 +2342,12 @@ async function viewSaleForm(ctx, id) {
         }
       }
       if (coverError) toast(`Venda salva, mas a foto de capa falhou. ${coverError.message}`, 'error', coverError);
-      else toast(sale ? 'Venda atualizada.' : 'Venda publicada!');
+      else toast(sale ? 'Venda atualizada.' : 'Venda criada como rascunho. Agora cadastre os itens.');
       navigate(`/venda/${res.data.id}${sale ? '' : '?novo=1'}`);
     } catch (err) {
       toast(err.message || 'Erro ao salvar.', 'error', err);
       btn.disabled = false;
-      btn.textContent = sale ? 'Salvar alterações' : 'Publicar e cadastrar itens';
+      btn.textContent = sale ? 'Salvar alterações' : 'Criar venda e cadastrar itens';
     }
   });
 }
