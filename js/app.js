@@ -46,6 +46,17 @@ const parseDate = (s) => {
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const today = () => isoDate(new Date());
 
+// Mesmas regras do banco (supabase/015): começa em até 60 dias e dura até 7.
+const MAX_START_DAYS = 60;
+const MAX_SALE_DAYS = 7;
+const maxStart = () => isoDate(addDays(new Date(), MAX_START_DAYS));
+function checkSaleDates(starts, ends) {
+  if (ends < starts) return 'O último dia não pode ser antes do início.';
+  if (starts > maxStart()) return `A venda precisa começar em até ${MAX_START_DAYS} dias.`;
+  if ((parseDate(ends) - parseDate(starts)) / 864e5 >= MAX_SALE_DAYS) return `A venda pode durar no máximo ${MAX_SALE_DAYS} dias.`;
+  return null;
+}
+
 function fmtDay(s) {
   const d = parseDate(s);
   const t = today();
@@ -114,6 +125,10 @@ function toast(msg, kind = '', err = null) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el.hidden = true), kind === 'error' ? 9000 : 3500);
 }
+// Regra do banco (limite, data, denúncia repetida): só mostra a mensagem, não é falha do app.
+const RULE_ERROR = 'DS400';
+const unexpected = (err) => (err?.code === RULE_ERROR ? null : err);
+const wrapError = (msg, error) => Object.assign(new Error(`${msg}: ${error.message}`), { code: error.code });
 
 const navigate = (path) => (location.hash = '#' + path);
 const saleUrl = (id) => `${BASE_URL}v/${id}/`;
@@ -211,15 +226,18 @@ async function setUser(user) {
   state.profile = null;
   state.contact = null;
   state.favorites = new Set();
+  state.moderator = false;
   if (user) {
-    const [p, c, f] = await Promise.all([
+    const [p, c, f, m] = await Promise.all([
       sb.from('profiles').select('id,name,chat_enabled').eq('id', user.id).maybeSingle(),
       sb.from('contacts').select('whatsapp,phone_verified,pix_key,pix_name,show_whatsapp').eq('user_id', user.id).maybeSingle(),
       sb.from('favorites').select('sale_id').eq('user_id', user.id),
+      sb.from('moderators').select('user_id').eq('user_id', user.id).maybeSingle(),
     ]);
     state.profile = p.data;
     state.contact = c.data;
     state.favorites = new Set((f.data || []).map((r) => r.sale_id));
+    state.moderator = !!m.data;
     syncReminders(sb).catch(() => {});
   }
   updateHeader();
@@ -795,6 +813,15 @@ async function viewSale(ctx, id) {
           <button class="btn primary" data-act="publish">${photosOnly ? 'Publicar venda' : 'Revisar preços e publicar'}</button>
         </div>` : ''}
 
+      ${state.moderator && !isOwner ? `
+        <div class="mod-bar">
+          <strong>Moderação</strong>
+          <div id="mod-reports" class="hint">Carregando denúncias…</div>
+          ${sale.hidden
+            ? '<button class="btn small primary" data-act="mod-show">Reexibir venda</button><button class="btn small" data-act="mod-hide">Manter oculta</button>'
+            : '<button class="btn small danger" data-act="mod-hide">Ocultar venda</button>'}
+        </div>` : ''}
+
       ${isOwner ? `
         <div class="owner-bar">
           <strong>${ended ? 'Esta venda já acabou. Vai fazer outra? Duplique e aproveite os itens que sobraram.' : 'Esta venda é sua.'}</strong>
@@ -1023,9 +1050,22 @@ async function viewSale(ctx, id) {
     } else if (act === 'report-sale' || act === 'report-user') {
       if (!requireLogin(`/venda/${sale.id}`, 'Entre para enviar uma denúncia.')) return;
       openReport(act === 'report-sale' ? { sale_id: sale.id } : { sale_id: sale.id, reported_user_id: sale.owner_id }, act === 'report-sale' ? 'anúncio' : 'vendedor');
+    } else if (act === 'mod-show' || act === 'mod-hide') {
+      const show = act === 'mod-show';
+      if (!show && !sale.hidden && !confirm('Ocultar esta venda? O vendedor será avisado.')) return;
+      btn.disabled = true;
+      const { error } = await sb.rpc('moderate_sale', { p_sale: sale.id, p_show: show });
+      if (error) {
+        btn.disabled = false;
+        return toast(error.message, 'error', error);
+      }
+      toast(show ? 'Venda de volta ao ar. O vendedor foi avisado.' : 'Venda oculta. As denúncias foram aceitas.');
+      render();
     }
   };
   cleanup.push(() => ($view.onclick = null));
+
+  if (state.moderator && !isOwner) loadModReports(sale.id);
 
   if (isOwner && photosOnly) setupPhotoOnly(sale, renderItems, sortItems);
   else if (isOwner) setupItemForm(sale, renderItems, sortItems);
@@ -1303,14 +1343,14 @@ function openPublish(sale, done) {
         it.price = price;
       });
       const { error } = await sb.rpc('publish_sale', { p_sale: sale.id });
-      if (error) throw new Error(`Erro ao publicar: ${error.message}`);
+      if (error) throw wrapError('Não foi possível publicar', error);
       sale.draft = false;
       sale.items.forEach((i) => (i.ai_price = false));
       close();
       toast('Venda publicada! Agora é só compartilhar o link.');
       done();
     } catch (err) {
-      toast(err.message, 'error', err);
+      toast(err.message, 'error', unexpected(err));
       btn.disabled = false;
       btn.textContent = 'Publicar venda';
     }
@@ -1677,7 +1717,7 @@ function openDuplicate(sale) {
     <p class="hint">Cria uma nova venda com o mesmo local, horário, descrição e foto de capa. A venda atual não muda.</p>
     <form>
       <div class="row">
-        <label>Data de início<input type="date" name="starts_on" required value="${start}" min="${today()}"></label>
+        <label>Data de início<input type="date" name="starts_on" required value="${start}" min="${today()}" max="${maxStart()}"></label>
         <label>Último dia<input type="date" name="ends_on" required value="${end}" min="${today()}"></label>
       </div>
       <label class="check">
@@ -1698,7 +1738,8 @@ function openDuplicate(sale) {
   });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (form.ends_on.value < form.starts_on.value) return toast('O último dia não pode ser antes do início.', 'error');
+    const bad = checkSaleDates(form.starts_on.value, form.ends_on.value);
+    if (bad) return toast(bad, 'error');
     const btn = form.querySelector('button.primary');
     btn.disabled = true;
     btn.textContent = 'Duplicando…';
@@ -1710,7 +1751,7 @@ function openDuplicate(sale) {
         .insert({ ...row, starts_on: form.starts_on.value, ends_on: form.ends_on.value })
         .select('id')
         .single();
-      if (error) throw new Error(`Erro ao duplicar a venda: ${error.message}`);
+      if (error) throw wrapError('Erro ao duplicar a venda', error);
       if (form.copy.checked && leftovers.length) {
         const items = leftovers.map((i) => ({
           sale_id: copy.id,
@@ -1727,7 +1768,7 @@ function openDuplicate(sale) {
       toast('Venda duplicada!');
       navigate(`/venda/${copy.id}?duplicada=1`);
     } catch (err) {
-      toast(err.message, 'error', err);
+      toast(err.message, 'error', unexpected(err));
       btn.disabled = false;
       btn.textContent = 'Duplicar venda';
     }
@@ -2025,6 +2066,18 @@ async function shareSale(sale) {
   };
 }
 
+// Moderador: denúncias da venda, das mais novas para as antigas.
+const REPORT_STATUS = { aberta: 'em aberto', rejeitada: 'descartada', procedente: 'aceita' };
+async function loadModReports(saleId) {
+  const { data, error } = await sb.from('reports').select('reason,details,status,created_at').eq('sale_id', saleId).order('created_at', { ascending: false });
+  const box = document.getElementById('mod-reports');
+  if (!box) return;
+  if (error) return void (box.textContent = 'Não foi possível carregar as denúncias.');
+  box.innerHTML = data.length
+    ? `<ul class="mod-list">${data.map((r) => `<li><strong>${esc(r.reason)}</strong> · ${REPORT_STATUS[r.status] || esc(r.status)} · ${timeAgo(r.created_at)}${r.details ? `<br>${esc(r.details)}` : ''}</li>`).join('')}</ul>`
+    : 'Nenhuma denúncia.';
+}
+
 function openReport(target, what) {
   const { el, close } = openModal(`
     <h2>Denunciar ${what}</h2>
@@ -2044,7 +2097,7 @@ function openReport(target, what) {
     e.preventDefault();
     const f = e.target;
     const { error } = await sb.from('reports').insert({ ...target, reason: f.reason.value, details: f.details.value.trim() || null });
-    if (error) return toast(error.message, 'error', error);
+    if (error) return toast(error.message, 'error', unexpected(error));
     close();
     toast('Denúncia enviada. Obrigado por ajudar a manter o site seguro.');
   });
@@ -2213,7 +2266,7 @@ async function viewSaleForm(ctx, id) {
       </fieldset>
 
       <div class="row">
-        <label>Data de início<input type="date" name="starts_on" required value="${v.starts_on}" min="${sale ? '' : today()}"></label>
+        <label>Data de início<input type="date" name="starts_on" required value="${v.starts_on}" min="${sale ? '' : today()}" max="${maxStart()}"></label>
         <label>Último dia<input type="date" name="ends_on" required value="${v.ends_on}"></label>
       </div>
       <div class="row">
@@ -2303,7 +2356,10 @@ async function viewSaleForm(ctx, id) {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (form.ends_on.value < form.starts_on.value) return toast('O último dia não pode ser antes do início.', 'error');
+    // Venda antiga editada sem mexer nas datas não passa pelas regras novas (igual ao banco).
+    const datesChanged = !sale || form.starts_on.value !== sale.starts_on || form.ends_on.value !== sale.ends_on;
+    const bad = datesChanged && checkSaleDates(form.starts_on.value, form.ends_on.value);
+    if (bad) return toast(bad, 'error');
     if (form.starts_on.value === form.ends_on.value && form.end_time.value <= form.start_time.value)
       return toast('O horário de fechamento precisa ser depois da abertura.', 'error');
     const btn = form.querySelector('button.big');
@@ -2328,7 +2384,7 @@ async function viewSaleForm(ctx, id) {
       const res = sale
         ? await sb.from('sales').update(row).eq('id', sale.id).select('id').single()
         : await sb.from('sales').insert(row).select('id').single();
-      if (res.error) throw new Error(`Erro ao salvar a venda: ${res.error.message}`);
+      if (res.error) throw wrapError('Erro ao salvar a venda', res.error);
       localStorage.setItem('regiao', row.region);
       // A capa vai depois da venda salva: se a foto falhar, a venda não se perde.
       let coverError = null;
@@ -2345,7 +2401,7 @@ async function viewSaleForm(ctx, id) {
       else toast(sale ? 'Venda atualizada.' : 'Venda criada como rascunho. Agora cadastre os itens.');
       navigate(`/venda/${res.data.id}${sale ? '' : '?novo=1'}`);
     } catch (err) {
-      toast(err.message || 'Erro ao salvar.', 'error', err);
+      toast(err.message || 'Erro ao salvar.', 'error', unexpected(err));
       btn.disabled = false;
       btn.textContent = sale ? 'Salvar alterações' : 'Criar venda e cadastrar itens';
     }
@@ -2716,6 +2772,14 @@ function notificationText(n) {
       };
     case 'venda_oculta':
       return { icon: icon.flag, cls: 'cancel', title: 'Sua venda saiu do ar', body: `"${t}" foi ocultada após denúncias e não aparece mais nas buscas.` };
+    case 'venda_liberada':
+      return { icon: icon.flag, cls: 'saved', title: 'Sua venda voltou ao ar', body: `A moderação revisou "${t}" e ela aparece de novo nas buscas.` };
+    case 'denuncia_revisar':
+      return {
+        icon: icon.flag, cls: 'cancel',
+        title: n.detail === 'oculta' ? `Oculta por denúncias: ${t}` : `Denúncia: ${t}`,
+        body: `${n.count > 1 ? `${n.count} pessoas denunciaram` : 'Uma pessoa denunciou'} esta venda. Toque para revisar.`,
+      };
     default:
       return { icon: icon.bell, cls: '', title: t, body: '' };
   }
