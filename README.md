@@ -58,6 +58,7 @@ PWA para encontrar e divulgar **vendas de garagem, bazares e vendas de mudança*
 14. Rode [`supabase/008_push_do_chat.sql`](supabase/008_push_do_chat.sql): notificação no celular quando chega mensagem no chat. A função `enviar-push` usa os mesmos segredos dos lembretes (`VAPID_PRIVATE_KEY` e `REMINDERS_SECRET`), que o workflow **Publicar funções do Supabase** grava nela.
 15. Rode [`supabase/009_corrige_edicao_venda.sql`](supabase/009_corrige_edicao_venda.sql) (correção do aviso de venda alterada) e [`supabase/010_chat_escala.sql`](supabase/010_chat_escala.sql): cada pessoa recebe as mensagens num canal particular e a notificação no celular sai do próprio banco (extensão `pg_net`).
 16. Rode [`supabase/011_limpeza_de_fotos.sql`](supabase/011_limpeza_de_fotos.sql): todo dia, às 6h, o workflow **Limpeza das fotos** apaga do Storage as fotos das vendas que terminaram há mais de 30 dias e os envios abandonados (a venda continua no histórico, sem as fotos). Para conferir antes, rode o workflow manualmente com "Só contar, sem apagar".
+17. Rode [`supabase/012_rascunho.sql`](supabase/012_rascunho.sql): venda nova (ou duplicada) começa como rascunho, visível só para quem criou. Antes de publicar, o app mostra todos os preços para revisão, destacando os sugeridos pela IA. As vendas que já existiam continuam publicadas.
 
 ### 2. GitHub Pages
 
