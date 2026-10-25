@@ -561,3 +561,16 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 /* Venda só de divulgação (vendedor desligou o chat) */
 .notice.only-promo { flex-direction: row; align-items: flex-start; gap: 8px; margin: 10px 0 0; }
 .notice.only-promo svg { margin-top: 3px; color: var(--brand); }
+
+/* Venda "só fotos": grade de fotos quadradas */
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+.photo-grid:empty { display: none; }
+.photo-tile { border-radius: 10px; box-shadow: none; }
+.photo-tile .photo { width: 100%; padding: 0; border: 0; cursor: pointer; display: block; }
+.photo-tile.uploading, .photo-tile.failed { aspect-ratio: 1; display: grid; place-items: center; background: var(--line); color: var(--muted); font-size: .8rem; }
+.photo-tile.uploading span { animation: pulse 1.6s ease-in-out infinite; }
+.photo-tile.failed { color: var(--danger); }
+.photo-only-add { align-self: flex-start; cursor: pointer; }
+.viewer .status-toggle { justify-content: center; }
+.photo-tile .photo { aspect-ratio: 1; overflow: hidden; }
+.photo-tile .photo img { position: absolute; inset: 0; }
