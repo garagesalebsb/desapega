@@ -1,5 +1,5 @@
 // Notificação no celular quando chega mensagem no chat.
-// O app chama esta função logo depois de enviar uma mensagem; ela confere quem enviou e avisa
+// O banco chama esta função quando uma mensagem é gravada (gatilho messages_push) e ela avisa
 // os aparelhos da outra pessoa da conversa. Usa os mesmos segredos dos lembretes
 // (VAPID_PRIVATE_KEY e REMINDERS_SECRET), gravados aqui pelo workflow funcoes.yml.
 import webpush from 'npm:web-push@3.6.7';
@@ -42,12 +42,19 @@ Deno.serve(async (req) => {
     return res.json();
   };
 
-  let body: { message_id?: string; test_user?: string };
+  let body: { message_id?: string; hook_message_id?: string; test_user?: string };
   try {
     body = await req.json();
   } catch {
     return reply(400, { error: 'Pedido inválido.' });
   }
+
+  const chatPayload = (t: Target) => ({
+    title: `${t.sender_name} · ${t.item_title}`,
+    body: t.body ?? '',
+    url: `${SITE_URL}/#/chat/${t.conversation_id}`,
+    tag: `chat-${t.conversation_id}`, // várias mensagens da mesma conversa viram um aviso só
+  });
 
   let targets: Target[];
   let payload: (t: Target) => Record<string, string>;
@@ -55,7 +62,13 @@ Deno.serve(async (req) => {
     // Teste do administrador (com a senha): avisa todos os aparelhos de uma conta.
     targets = await rpc('push_targets_for_user', { p_user: body.test_user });
     payload = () => ({ title: 'Teste do chat', body: 'As notificações de mensagens estão funcionando.', url: `${SITE_URL}/#/chat`, tag: 'teste-chat' });
+  } else if (UUID.test(body.hook_message_id ?? '')) {
+    // Chamada do próprio banco (gatilho em messages, supabase/010_chat_escala.sql). Sem login:
+    // só avisa mensagens com menos de 5 minutos e ainda não avisadas, então repetir não gera aviso extra.
+    targets = await rpc('message_push_targets', { p_message: body.hook_message_id });
+    payload = chatPayload;
   } else {
+    // Versões antigas do app ainda chamam daqui depois de enviar.
     if (!UUID.test(body.message_id ?? '')) return reply(400, { error: 'Mensagem inválida.' });
     const sb = createClient(url, anon, {
       global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
@@ -64,12 +77,7 @@ Deno.serve(async (req) => {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return reply(401, { error: 'Entre na sua conta.' });
     targets = await rpc('message_push_targets', { p_message: body.message_id, p_sender: user.id });
-    payload = (t) => ({
-      title: `${t.sender_name} · ${t.item_title}`,
-      body: t.body ?? '',
-      url: `${SITE_URL}/#/chat/${t.conversation_id}`,
-      tag: `chat-${t.conversation_id}`, // várias mensagens da mesma conversa viram um aviso só
-    });
+    payload = chatPayload;
   }
 
   let sent = 0;
