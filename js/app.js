@@ -1627,7 +1627,7 @@ async function toggleFavorite(saleId) {
 // Notificações no celular: mensagens do chat e lembretes das vendas salvas (véspera às 19h, dia às 7h)
 // ---------------------------------------------------------------------
 const REMINDER_TIMES = 'na véspera, às 19h, e no dia, às 7h';
-const PUSH_WHAT = `quando chegar mensagem no chat e ${REMINDER_TIMES} das vendas que você salvou`;
+const PUSH_WHAT = `as mensagens do chat na hora em que chegam e lembretes das vendas que você salvou (${REMINDER_TIMES})`;
 
 // Convite para ativar: depois de salvar uma venda ou de mandar a primeira mensagem, uma vez por semana no máximo.
 // Devolve true se mostrou o convite.
@@ -1641,7 +1641,7 @@ function offerReminders(reason = 'favorito') {
   }
   const { el, close } = openModal(`
     <h2>${reason === 'chat' ? 'Quer saber quando responderem?' : 'Quer um lembrete?'}</h2>
-    <p class="hint">Avisamos no celular ${PUSH_WHAT}. Dá para desligar quando quiser em Menu &gt; Dados da conta.</p>
+    <p class="hint">Você recebe no celular ${PUSH_WHAT}. Dá para desligar quando quiser em Menu &gt; Dados da conta.</p>
     <div class="actions column">
       <button class="btn primary" data-on>${icon.bell}Ativar notificações</button>
       <button class="btn" data-close>Agora não</button>
@@ -1682,10 +1682,10 @@ async function mountReminders(el, { compact = false } = {}) {
   } else if (blocked) {
     body = `<p class="hint">As notificações estão bloqueadas para este site. Libere nas configurações do navegador e volte aqui.</p>`;
   } else if (active) {
-    body = `<p class="hint"><span class="ok">Ativas neste aparelho ✓</span> Avisamos ${PUSH_WHAT}.</p>
+    body = `<p class="hint"><span class="ok">Ativas neste aparelho ✓</span> Você recebe ${PUSH_WHAT}.</p>
       <button type="button" class="btn small" data-rem="off">Desativar notificações</button>`;
   } else {
-    body = `<p class="hint">Receba no celular um aviso ${PUSH_WHAT}.</p>
+    body = `<p class="hint">Receba no celular ${PUSH_WHAT}.</p>
       <button type="button" class="btn ${compact ? 'small' : ''} primary" data-rem="on">${icon.bell}Ativar notificações</button>`;
   }
   el.innerHTML = compact ? `<div class="reminder-box compact">${body}</div>` : `<fieldset class="reminder-box"><legend>${icon.bell} Notificações no celular</legend>${body}</fieldset>`;
