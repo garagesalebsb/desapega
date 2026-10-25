@@ -2092,7 +2092,8 @@ async function openChat(sale, item, text = '') {
   navigate(`/chat/${id}`);
 }
 
-// Mensagens chegam na hora (Supabase Realtime; o banco só entrega as conversas da própria pessoa).
+// Mensagens chegam na hora (Supabase Realtime): o banco publica cada mensagem no canal
+// particular de quem está na conversa, e só a própria pessoa entra no seu canal.
 let chatChannel = null;
 let openConversation = null; // id da conversa aberta na tela, se houver
 function listenChat() {
@@ -2100,8 +2101,8 @@ function listenChat() {
   chatChannel = null;
   if (!state.user) return;
   chatChannel = sb
-    .channel(`chat-${state.user.id}`)
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, ({ new: m }) => {
+    .channel(`user:${state.user.id}`, { config: { private: true } })
+    .on('broadcast', { event: 'message' }, ({ payload: m }) => {
       window.dispatchEvent(new CustomEvent('chat-message', { detail: m }));
       if (m.sender_id === state.user?.id || m.conversation_id === openConversation) return;
       refreshUnread(true);
@@ -2271,9 +2272,7 @@ async function viewConversation(ctx, id) {
     }
     if (messages.some((x) => x.id === data.id)) messages.splice(i, 1); // o tempo real chegou antes
     else messages[i] = data;
-    paint();
-    // Avisa o celular da outra pessoa (se ela ativou as notificações). Falha aqui não atrapalha o chat.
-    sb.functions.invoke('enviar-push', { body: { message_id: data.id } }).catch(() => {});
+    paint(); // o aviso no celular da outra pessoa sai do próprio banco
     offerReminders('chat');
   });
   if (draft) input.focus();
