@@ -1,0 +1,33 @@
+name: Limpeza das fotos
+
+# Apaga do Storage as fotos das vendas que terminaram há mais de 30 dias e os envios abandonados.
+# Quem decide o que apagar é o banco (supabase/011_limpeza_de_fotos.sql); a função limpar-fotos apaga.
+on:
+  schedule:
+    - cron: '0 9 * * *' # 6h de Brasília
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Só contar, sem apagar'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: limpeza-fotos
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Limpa as fotos
+        env:
+          REMINDERS_SECRET: ${{ secrets.REMINDERS_SECRET }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          curl -fsS --max-time 120 -X POST "https://jadxgfwguzcbmuvjutvq.supabase.co/functions/v1/limpar-fotos" \
+            -H "Content-Type: application/json" -H "x-push-secret: $REMINDERS_SECRET" \
+            -d "{\"dry_run\": $DRY_RUN}"
