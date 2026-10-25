@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir rápido e funcionar com internet ruim.
 // Arquivos do app: rede primeiro, cache como reserva. Dados do Supabase: sempre da rede.
-const CACHE = 'desapego-v24';
+const CACHE = 'desapego-v25';
 const SHELL = [
   './',
   'index.html',
@@ -76,7 +76,7 @@ self.addEventListener('push', (e) => {
   e.waitUntil(
     self.clients.matchAll({ type: 'window' }).then((wins) => {
       // App aberto: atualiza os números do sininho e do chat.
-      wins.forEach((w) => w.postMessage({ type: 'push' }));
+      wins.forEach((w) => w.postMessage({ type: 'push', url: msg.url }));
       // A pessoa já está vendo esta conversa: não precisa de aviso.
       if (msg.url && wins.some((w) => w.focused && w.visibilityState === 'visible' && w.url === msg.url)) return;
       return self.registration.showNotification(msg.title || 'Desapega', {
