@@ -509,7 +509,9 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 .chat-input textarea { flex: 1; resize: none; min-height: 44px; max-height: 140px; border-radius: 22px; padding: 10px 14px; }
 .chat-input .btn { width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 50%; flex: none; }
 .chat-input .btn svg { width: 20px; height: 20px; }
-.chat-view .report-links { margin-top: 12px; }
+.chat-report { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; }
+.chat-report:hover, .chat-report:focus-visible { background: var(--line); color: var(--danger); }
+.chat-report svg { width: 18px; height: 18px; }
 
 /* ---------- Menu ---------- */
 .menu-user {

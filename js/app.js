@@ -2326,6 +2326,7 @@ async function viewConversation(ctx, id) {
             <small>${c.item_price != null ? `${brl(c.item_price)} · ` : ''}${c.item_status ? STATUS_SHORT[c.item_status] : 'Item removido'} · ${c.i_am_seller ? 'comprador' : 'vendedor'}: ${esc(c.other_name)}</small>
           </span>
         </a>
+        <button class="chat-report" data-report aria-label="Denunciar conversa" title="Denunciar conversa">${icon.flag}</button>
       </div>
       ${c.i_am_seller && c.item_id ? `
         <div class="status-toggle chat-status" role="group" aria-label="Situação do item">
@@ -2337,7 +2338,6 @@ async function viewConversation(ctx, id) {
         <textarea name="body" rows="1" maxlength="2000" placeholder="Escreva uma mensagem" aria-label="Mensagem" required>${esc(draft)}</textarea>
         <button class="btn primary" aria-label="Enviar">${icon.send}</button>
       </form>
-      <div class="report-links"><button class="link" data-report>${icon.flag}Denunciar conversa</button></div>
     </div>`;
 
   const box = document.getElementById('chat-msgs');
