@@ -228,8 +228,18 @@ function updateBadge() {
   document.getElementById('chat-tab').setAttribute('aria-label', state.chatUnread ? `Chat: ${state.chatUnread} conversa(s) com mensagem nova` : 'Chat');
 }
 
-document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && refreshUnread());
-navigator.serviceWorker?.addEventListener('message', (e) => e.data?.type === 'push' && refreshUnread(true));
+// No celular a conexão em tempo real cai com o app em segundo plano: ao voltar, ou quando chega
+// uma notificação, a tela do chat busca o que chegou nesse meio-tempo ('chat-resync').
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  refreshUnread();
+  window.dispatchEvent(new Event('chat-resync'));
+});
+navigator.serviceWorker?.addEventListener('message', (e) => {
+  if (e.data?.type !== 'push') return;
+  refreshUnread(true);
+  window.dispatchEvent(new Event('chat-resync'));
+});
 
 function updateHeader() {
   const link = document.getElementById('account-link');
@@ -2206,10 +2216,19 @@ async function openChat(sale, item, text = '') {
 // particular de quem está na conversa, e só a própria pessoa entra no seu canal.
 let chatChannel = null;
 let openConversation = null; // id da conversa aberta na tela, se houver
-function listenChat() {
+let chatListen = 0;
+// A lista de conversas também se atualiza ao voltar para o app.
+window.addEventListener('chat-resync', (e) => !e.detail?.initial && location.hash === '#/chat' && render());
+async function listenChat() {
+  const turn = ++chatListen;
   if (chatChannel) sb.removeChannel(chatChannel);
   chatChannel = null;
   if (!state.user) return;
+  // O canal é particular: o Realtime precisa do token da sessão antes de entrar.
+  const { data } = await sb.auth.getSession();
+  if (turn !== chatListen || !state.user) return;
+  if (data.session) sb.realtime.setAuth(data.session.access_token);
+  let initial = true;
   chatChannel = sb
     .channel(`user:${state.user.id}`, { config: { private: true } })
     .on('broadcast', { event: 'message' }, ({ payload: m }) => {
@@ -2219,7 +2238,12 @@ function listenChat() {
       if (location.hash === '#/chat') render();
       else if (!location.hash.startsWith('#/chat')) toast('Nova mensagem no chat.');
     })
-    .subscribe();
+    .subscribe((status) => {
+      // (Re)conectou, por exemplo depois de a rede cair: busca o que pode ter passado.
+      if (status !== 'SUBSCRIBED') return;
+      window.dispatchEvent(new CustomEvent('chat-resync', { detail: { initial } }));
+      initial = false;
+    });
 }
 
 const STATUS_SHORT = { disponivel: 'Disponível', reservado: 'Reservado', vendido: 'Vendido' };
@@ -2341,9 +2365,31 @@ async function viewConversation(ctx, id) {
     paint();
     if (m.sender_id !== state.user.id) sb.rpc('mark_conversation_read', { p_conv: id });
   };
+  // Mensagens que chegaram sem o tempo real (app em segundo plano, conexão caída).
+  let syncing = false;
+  const onResync = async () => {
+    if (syncing) return;
+    syncing = true;
+    try {
+      const last = messages.filter((m) => !m.pending).at(-1)?.created_at;
+      let q = sb.from('messages').select('id,sender_id,body,created_at').eq('conversation_id', id).order('created_at').limit(200);
+      if (last) q = q.gt('created_at', last);
+      const { data } = await q;
+      const fresh = (data || []).filter((m) => !messages.some((x) => x.id === m.id));
+      if (!fresh.length || openConversation !== id) return;
+      messages.push(...fresh);
+      messages.sort((a, b) => !!a.pending - !!b.pending || a.created_at.localeCompare(b.created_at));
+      paint();
+      if (fresh.some((m) => m.sender_id !== state.user.id)) sb.rpc('mark_conversation_read', { p_conv: id }).then(() => refreshUnread(true));
+    } finally {
+      syncing = false;
+    }
+  };
   window.addEventListener('chat-message', onMessage);
+  window.addEventListener('chat-resync', onResync);
   cleanup.push(() => {
     window.removeEventListener('chat-message', onMessage);
+    window.removeEventListener('chat-resync', onResync);
     openConversation = null;
   });
 
