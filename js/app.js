@@ -53,6 +53,15 @@ function fmtDay(s) {
   if (s === isoDate(addDays(new Date(), 1))) return 'Amanhã';
   return d.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
 }
+// Título dos carrosséis por dia: "Hoje", "Amanhã, domingo", "Sábado, 1 de novembro".
+function fmtDayLong(s) {
+  const d = parseDate(s);
+  const week = d.toLocaleDateString('pt-BR', { weekday: 'long' }).replace('-feira', '');
+  if (s === today()) return 'Hoje';
+  if (s === isoDate(addDays(new Date(), 1))) return `Amanhã, ${week}`;
+  const long = d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  return long.charAt(0).toUpperCase() + long.slice(1);
+}
 // "08:00" → "8h", "14:30" → "14h30"
 const fmtTime = (t) => {
   if (!t) return '';
@@ -137,6 +146,7 @@ const icon = {
   out: '<svg viewBox="0 0 24 24"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/></svg>',
   doc: '<svg viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z"/><path d="M14 3.5v4h4M9 12h6M9 16h6"/></svg>',
   chevron: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
+  target: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></svg>',
   bell: '<svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>',
   pix: '<svg viewBox="0 0 24 24"><path d="M12 3.5 20.5 12 12 20.5 3.5 12z"/><path d="M8 12h8"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.2-3.8A8 8 0 1 1 8 19z"/><path d="M9 9.5c.5 2.5 2.5 4.5 5 5l1.2-1.2 2 1-.4 1.6c-4.4.4-9-4.2-8.6-8.6L9.8 7l1 2z"/></svg>',
@@ -153,12 +163,33 @@ function mapsLinks(s) {
 // Mapa (Leaflet + OpenStreetMap)
 // ---------------------------------------------------------------------
 let cleanup = [];
-function makeMap(el, center, zoom, opts = {}) {
-  const map = L.map(el, { scrollWheelZoom: false, ...opts }).setView(center, zoom);
+// O DF com folga: arrastando, o mapa não sai de Brasília.
+const DF_BOUNDS = [[-16.4, -48.65], [-15.2, -47.05]];
+// recenter: o que o botão de centralizar faz (padrão: volta para a vista inicial).
+function makeMap(el, center, zoom, { recenter, ...opts } = {}) {
+  const map = L.map(el, { scrollWheelZoom: false, maxBounds: DF_BOUNDS, maxBoundsViscosity: 0.9, minZoom: 9, ...opts }).setView(center, zoom);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap',
   }).addTo(map);
+  const Recenter = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd() {
+      const btn = L.DomUtil.create('button', 'map-recenter leaflet-bar');
+      btn.type = 'button';
+      btn.title = 'Centralizar o mapa';
+      btn.setAttribute('aria-label', 'Centralizar o mapa');
+      btn.innerHTML = icon.target;
+      L.DomEvent.disableClickPropagation(btn);
+      L.DomEvent.on(btn, 'click', (e) => {
+        L.DomEvent.preventDefault(e);
+        if (recenter) recenter(map);
+        else map.setView(center, zoom);
+      });
+      return btn;
+    },
+  });
+  map.addControl(new Recenter());
   // Ao trocar de tela: cancela o ajuste pendente e para animações antes de remover o mapa
   // (remover no meio de uma animação gera erro no Leaflet).
   const resize = setTimeout(() => map.invalidateSize({ animate: false }), 50);
@@ -371,6 +402,9 @@ function saleCard(s) {
 const skeletonCards = (n = 4) =>
   `<div class="cards" aria-busy="true" aria-label="Carregando">${'<div class="sale-card skeleton"><div class="thumb"></div><div class="body"><span></span><span></span><span></span></div></div>'.repeat(n)}</div>`;
 
+// Distâncias do "Perto de mim" (km).
+const NEAR_RADII = [2, 5, 10, 20];
+
 // Localização do comprador ("Perto de mim"): fica só nesta aba, nunca é enviada ao servidor.
 function myPosition() {
   try {
@@ -442,10 +476,14 @@ async function viewHome(ctx) {
   let region = p.has('regiao') ? p.get('regiao') : localStorage.getItem('regiao') || '';
   const type = p.get('tipo') || '';
   const near = p.get('perto') === '1' && !!myPosition();
+  const radius = NEAR_RADII.includes(Number(p.get('raio'))) ? Number(p.get('raio')) : 5;
 
   const link = (changes) => {
-    const q = new URLSearchParams({ quando: when, regiao: region, tipo: type, ...(near ? { perto: '1' } : {}), ...changes });
-    if (q.get('perto') !== '1') q.delete('perto');
+    const q = new URLSearchParams({ quando: when, regiao: region, tipo: type, ...(near ? { perto: '1', raio: radius } : {}), ...changes });
+    if (q.get('perto') !== '1') {
+      q.delete('perto');
+      q.delete('raio');
+    }
     return '#/?' + q.toString();
   };
 
@@ -470,6 +508,11 @@ async function viewHome(ctx) {
           .map(([k, t]) => `<a href="${link({ tipo: k })}" class="chip chip-${k} ${type === k ? 'on' : ''}">${t.short}</a>`)
           .join('')}
       </div>
+      ${near ? `
+        <div class="near-radius" role="group" aria-label="Distância máxima">
+          <span>Até</span>
+          ${NEAR_RADII.map((km) => `<a href="${link({ raio: km })}" class="chip ${km === radius ? 'on' : ''}">${km} km</a>`).join('')}
+        </div>` : ''}
     </div>
     <div class="home-grid">
       <div id="home-map" class="map"></div>
@@ -509,14 +552,24 @@ async function viewHome(ctx) {
   const { data: rows, error } = await q;
   if (!ctx.alive()) return;
   if (error) throw error;
-  // Tira as que já fecharam hoje; "perto de mim" ordena pela distância.
-  const sales = rows.filter((s) => saleStatus(s).key !== 'encerrada');
+  // Tira as que já fecharam hoje; "perto de mim" fica só com as que estão dentro da distância
+  // escolhida, da mais perto para a mais longe.
+  const open = rows.filter((s) => saleStatus(s).key !== 'encerrada');
   const me = near ? myPosition() : null;
-  if (me) sales.sort((a, b) => distanceKm(me, a) - distanceKm(me, b));
+  const sales = me ? open.filter((s) => distanceKm(me, s) <= radius).sort((a, b) => distanceKm(me, a) - distanceKm(me, b)) : open;
 
   const r = regionByName(region);
-  const map = makeMap('home-map', me ? [me.lat, me.lng] : r ? [r.lat, r.lng] : DF_CENTER, me ? 13 : r ? 14 : 11);
+  let area = null; // círculo da distância escolhida
+  const fitHome = (m, animate = true) => {
+    if (area) return m.fitBounds(area.getBounds(), { padding: [10, 10], animate });
+    const pts = sales.map((s) => [s.lat, s.lng]);
+    if (pts.length > 1) m.fitBounds(pts, { padding: [30, 30], maxZoom: 15, animate });
+    else if (pts.length === 1) m.setView(pts[0], 15, { animate });
+    else m.setView(r ? [r.lat, r.lng] : DF_CENTER, r ? 14 : 11, { animate });
+  };
+  const map = makeMap('home-map', me ? [me.lat, me.lng] : r ? [r.lat, r.lng] : DF_CENTER, me ? 13 : r ? 14 : 11, { recenter: fitHome });
   if (me) {
+    area = L.circle([me.lat, me.lng], { radius: radius * 1000, color: '#1c7ed6', weight: 1.5, fillOpacity: 0.06, interactive: false }).addTo(map);
     L.marker([me.lat, me.lng], {
       icon: L.divIcon({ className: 'me-dot', html: '<span></span>', iconSize: [22, 22], iconAnchor: [11, 11] }),
       zIndexOffset: 1000,
@@ -525,19 +578,26 @@ async function viewHome(ctx) {
       .addTo(map)
       .bindTooltip('Você está aqui');
   }
-  const bounds = me ? [[me.lat, me.lng]] : [];
-  for (const s of sales) {
-    L.marker([s.lat, s.lng], { icon: pinIcon(s.type) })
+  for (const s of me ? open : sales) {
+    L.marker([s.lat, s.lng], { icon: pinIcon(s.type), opacity: me && !sales.includes(s) ? 0.45 : 1 })
       .addTo(map)
-      .bindPopup(`<a href="#/venda/${s.id}"><strong>${esc(s.title)}</strong></a><br>${fmtWhen(s)}`);
-    bounds.push([s.lat, s.lng]);
+      .bindPopup(`<a href="#/venda/${s.id}"><strong>${esc(s.title)}</strong></a><br>${fmtWhen(s)}${me ? `<br>a ${formatDistance(distanceKm(me, s))} de você` : ''}`);
   }
-  // Perto de mim: enquadra você e as 5 vendas mais próximas.
-  const frame = me ? bounds.slice(0, 6) : bounds;
-  if (frame.length > 1) map.fitBounds(frame, { padding: [30, 30], maxZoom: 15, animate: false });
-  else if (frame.length === 1) map.setView(frame[0], me ? 13 : 15, { animate: false });
+  fitHome(map, false);
 
   const list = document.getElementById('home-list');
+  if (me && !sales.length) {
+    const wider = NEAR_RADII.find((km) => km > radius && open.some((s) => distanceKm(me, s) <= km));
+    const closest = open.reduce((best, s) => (!best || distanceKm(me, s) < distanceKm(me, best) ? s : best), null);
+    list.innerHTML = `
+      <div class="empty">
+        <h2>Nenhuma venda a até ${radius} km de você ${when === 'fds' ? 'até domingo' : ''}</h2>
+        ${closest ? `<p>A mais perto fica a ${formatDistance(distanceKm(me, closest))}, em ${esc(closest.region)}.</p>` : '<p>Ainda não há vendas marcadas com esses filtros.</p>'}
+        ${wider ? `<a class="btn primary" href="${link({ raio: wider })}">Ver até ${wider} km</a>` : ''}
+        ${when === 'fds' ? `<a class="btn" href="${link({ quando: 'todas' })}">Ver próximas datas</a>` : ''}
+      </div>`;
+    return;
+  }
   if (!sales.length) {
     list.innerHTML = `
       <div class="empty">
@@ -552,18 +612,33 @@ async function viewHome(ctx) {
   const now = sales.filter((s) => saleStatus(s).key === 'agora');
   // No "perto de mim" a distância manda: sem a faixa de destaque das mudanças.
   const mudancas = !type && !me ? sales.filter((s) => s.type === 'mudanca' && !now.includes(s)) : [];
-  // Título da lista completa: só aparece quando há destaques acima dela ou no "perto de mim".
-  const listTitle = me ? 'Mais perto de você' : now.length || mudancas.length ? 'Todas as vendas' : '';
+  const strip = (title, list, hint = '') =>
+    `<h2 class="section-title">${title}</h2>${hint ? `<p class="hint">${hint}</p>` : ''}<div class="cards strip">${list.map(saleCard).join('')}</div>`;
+
+  // "Até domingo": um carrossel por dia (cada venda no primeiro dia que ainda vai acontecer).
+  // As que estão acontecendo agora já aparecem no carrossel de cima.
+  let rest;
+  if (when === 'fds' && !me) {
+    const days = new Map();
+    for (const s of sales.filter((x) => !now.includes(x))) {
+      const day = s.starts_on > today() ? s.starts_on : today();
+      if (!days.has(day)) days.set(day, []);
+      days.get(day).push(s);
+    }
+    rest = [...days].sort(([a], [b]) => a.localeCompare(b)).map(([day, list]) => strip(fmtDayLong(day), list)).join('');
+  } else {
+    // Título da lista completa: só aparece quando há destaques acima dela ou no "perto de mim".
+    const listTitle = me ? 'Mais perto de você' : now.length || mudancas.length ? 'Todas as vendas' : '';
+    rest = `${listTitle ? `<h2 class="section-title">${listTitle}</h2>` : ''}<div class="cards">${sales.map(saleCard).join('')}</div>`;
+  }
+  const closest = me && sales[0];
   list.innerHTML = `
+    ${me ? `<p class="near-summary">${sales.length} venda${sales.length === 1 ? '' : 's'} a até ${radius} km de você · a mais perto fica a <strong>${formatDistance(distanceKm(me, closest))}</strong>, em ${esc(closest.region)}.</p>` : ''}
     ${now.length ? `
-      <h2 class="section-title"><span class="live-dot"></span>Acontecendo agora</h2>
+      <h2 class="section-title"><span class="live-dot"></span>Acontecendo agora${me ? ' perto de você' : ''}</h2>
       <div class="cards strip">${now.map(saleCard).join('')}</div>` : ''}
-    ${mudancas.length ? `
-      <h2 class="section-title">Em destaque: vendas de mudança</h2>
-      <p class="hint">Quem se muda vende quase tudo, e rápido.</p>
-      <div class="cards strip">${mudancas.map(saleCard).join('')}</div>` : ''}
-    ${listTitle ? `<h2 class="section-title">${listTitle}</h2>` : ''}
-    <div class="cards">${sales.map(saleCard).join('')}</div>`;
+    ${mudancas.length ? strip('Em destaque: vendas de mudança', mudancas, 'Quem se muda vende quase tudo, e rápido.') : ''}
+    ${rest}`;
 }
 
 // ---------------------------------------------------------------------
@@ -2067,7 +2142,7 @@ async function viewSaleForm(ctx, id) {
   let pos = sale ? [sale.lat, sale.lng] : [startRegion.lat, startRegion.lng];
   let pinMoved = !!sale;
 
-  const map = makeMap('form-map', pos, sale ? 17 : 15, { scrollWheelZoom: true });
+  const map = makeMap('form-map', pos, sale ? 17 : 15, { scrollWheelZoom: true, recenter: (m) => m.setView(marker.getLatLng(), Math.max(m.getZoom(), 15)) });
   const marker = L.marker(pos, { draggable: true, icon: pinIcon(v.type) }).addTo(map);
   marker.on('dragend', () => {
     const ll = marker.getLatLng();
