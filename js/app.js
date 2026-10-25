@@ -208,10 +208,14 @@ async function refreshUnread(force = false) {
   }
   if (!force && Date.now() - unreadCheckedAt < 30000) return;
   unreadCheckedAt = Date.now();
+  const turn = ++unreadTurn;
   const [n, c] = await Promise.all([
     sb.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null),
     sb.rpc('chat_unread_count'),
   ]);
+  // Uma contagem mais nova já foi pedida (por exemplo, depois de marcar a conversa aberta como lida):
+  // esta resposta pode ser de antes e mostraria um número que já não vale.
+  if (turn !== unreadTurn) return;
   // Falha de rede ou banco ainda sem a tabela: só não mostra o número.
   if (!n.error) state.unread = n.count || 0;
   if (!c.error) state.chatUnread = c.data || 0;
