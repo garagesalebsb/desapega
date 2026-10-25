@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir rápido e funcionar com internet ruim.
 // Arquivos do app: rede primeiro, cache como reserva. Dados do Supabase: sempre da rede.
-const CACHE = 'desapego-v18';
+const CACHE = 'desapego-v19';
 const SHELL = [
   './',
   'index.html',
@@ -81,6 +81,8 @@ self.addEventListener('push', (e) => {
       if (msg.url && wins.some((w) => w.focused && w.visibilityState === 'visible' && w.url === msg.url)) return;
       return self.registration.showNotification(msg.title || 'Desapega', {
         body: msg.body || 'Uma venda que você salvou está chegando.',
+        // Sem imagem o Chrome do Android desenha uma bola com a letra do site; uma imagem transparente não mostra nada.
+        icon: 'icons/vazio.png',
         badge: 'icons/badge-96.png',
         tag: msg.tag,
         renotify: !!msg.tag, // mensagem nova da mesma conversa toca de novo
