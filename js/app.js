@@ -199,6 +199,7 @@ async function setUser(user) {
 // Número no sininho: atualiza ao trocar de tela (no máximo a cada 30 s), ao voltar para o app
 // e quando chega uma notificação no celular.
 let unreadCheckedAt = 0;
+let unreadTurn = 0;
 async function refreshUnread(force = false) {
   if (!state.user) {
     state.unread = 0;
