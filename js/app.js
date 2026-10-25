@@ -2234,6 +2234,7 @@ async function viewSaleForm(ctx, id) {
   $view.innerHTML = `
     <form id="sale-form" class="form">
       <h1>${sale ? 'Editar venda' : 'Anunciar uma venda'}</h1>
+      ${sale ? '' : '<p class="hint">Antes de começar, veja as <a href="regras.html">regras para anunciar</a> (datas, limites e denúncias).</p>'}
 
       <fieldset class="type-pick">
         <legend>Tipo</legend>
@@ -2733,6 +2734,7 @@ async function viewMenu() {
         ${row('#/anunciar', icon.camera, 'Anunciar uma venda')}
       </nav>
       <nav class="menu-list" aria-label="Informações">
+        ${row('regras.html', icon.flag, 'Regras para anunciar')}
         ${row('privacidade.html', icon.doc, 'Política de Privacidade')}
         ${row('termos.html', icon.doc, 'Termos de Uso')}
       </nav>

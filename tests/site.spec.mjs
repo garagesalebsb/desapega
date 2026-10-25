@@ -190,6 +190,8 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByRole('heading', { name: 'Política de Privacidade' })).toBeVisible();
     await page.goto('./termos.html');
     await expect(page.getByRole('heading', { name: 'Termos de Uso' })).toBeVisible();
+    await page.goto('./regras.html');
+    await expect(page.getByRole('heading', { name: 'Regras para anunciar' })).toBeVisible();
   });
 });
 
