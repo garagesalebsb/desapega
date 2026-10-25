@@ -34,6 +34,6 @@ jobs:
       - run: node scripts/send-reminders.mjs
         env:
           KIND: ${{ inputs.kind || (github.event.schedule == '0 10 * * *' && 'hoje') || 'vespera' }}
-          SITE_URL: https://garagesalebsb.github.io/desapego-brasilia
+          SITE_URL: https://garagesalebsb.github.io/desapega
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           REMINDERS_SECRET: ${{ secrets.REMINDERS_SECRET }}
