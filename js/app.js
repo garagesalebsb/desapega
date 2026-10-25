@@ -213,7 +213,7 @@ async function setUser(user) {
   state.favorites = new Set();
   if (user) {
     const [p, c, f] = await Promise.all([
-      sb.from('profiles').select('id,name').eq('id', user.id).maybeSingle(),
+      sb.from('profiles').select('id,name,chat_enabled').eq('id', user.id).maybeSingle(),
       sb.from('contacts').select('whatsapp,phone_verified,pix_key,pix_name,show_whatsapp').eq('user_id', user.id).maybeSingle(),
       sb.from('favorites').select('sale_id').eq('user_id', user.id),
     ]);
@@ -737,7 +737,7 @@ async function viewSale(ctx, id) {
     </div>`;
   const { data: sale, error } = await sb
     .from('sales')
-    .select('*, owner:profiles!sales_owner_id_fkey(id,name), items(*)')
+    .select('*, owner:profiles!sales_owner_id_fkey(id,name,chat_enabled), items(*)')
     .eq('id', id)
     .maybeSingle();
   if (!ctx.alive()) return;
@@ -783,6 +783,7 @@ async function viewSale(ctx, id) {
         ${ended ? '' : `<button class="btn" data-act="calendar">${icon.calendar}Adicionar à agenda</button>`}
         ${isOwner ? '' : `<button class="btn fav ${state.favorites.has(sale.id) ? 'on' : ''}" data-act="fav">${icon.heart}<span>${state.favorites.has(sale.id) ? 'Salva' : 'Salvar'}</span></button>`}
       </div>
+      ${!isOwner && sale.owner?.chat_enabled === false && !ended ? `<p class="notice only-promo">${icon.pin}<span>Este vendedor só está divulgando a venda e não recebe mensagens pelo app. Os itens estão à venda no local, no dia e horário acima.</span></p>` : ''}
 
       ${isOwner && sale.draft ? `
         <div class="draft-bar">
@@ -795,6 +796,7 @@ async function viewSale(ctx, id) {
         <div class="owner-bar">
           <strong>${ended ? 'Esta venda já acabou. Vai fazer outra? Duplique e aproveite os itens que sobraram.' : 'Esta venda é sua.'}</strong>
           ${ended ? `<p class="hint">${photoRetention(sale)}</p>` : ''}
+          ${state.profile?.chat_enabled === false ? '<p class="hint">Seu chat está desligado: compradores não mandam mensagens. Dá para religar em <a href="#/perfil">Perfil</a>.</p>' : ''}
           ${ended ? '<button class="btn small primary" data-act="duplicate">Duplicar para nova data</button>' : ''}
           <a class="btn small" href="#/venda/${sale.id}/cartaz">Cartaz com QR Code</a>
           <a class="btn small" href="#/venda/${sale.id}/editar">Editar venda</a>
@@ -850,9 +852,10 @@ async function viewSale(ctx, id) {
   L.marker([sale.lat, sale.lng], { icon: pinIcon(sale.type) }).addTo(map);
 
   let hasPix = false;
+  const chatOn = sale.owner?.chat_enabled !== false; // vendedor que só divulga desliga o chat no perfil
   const buyerItemActions = (it) =>
     it.status === 'disponivel' && !ended
-      ? `<button class="btn small primary" data-act="interest">${icon.chat}Tenho interesse</button>
+      ? `${chatOn ? `<button class="btn small primary" data-act="interest">${icon.chat}Tenho interesse</button>` : ''}
          ${hasPix && Number(it.price) > 0 ? `<button class="btn small pix" data-act="pix">${icon.pix}Pagar com Pix</button>` : ''}`
       : '';
 
@@ -962,7 +965,7 @@ async function viewSale(ctx, id) {
         toast('Não foi possível atualizar o item.', 'error', error);
       }
     } else if (act === 'view-item') {
-      openItemViewer(sale, item, { isOwner, ended, hasPix, onAction: (a) => handleItemAction(a, item) });
+      openItemViewer(sale, item, { isOwner, ended, hasPix, chatOn, onAction: (a) => handleItemAction(a, item) });
     } else if (['edit-item', 'pix', 'delete-item'].includes(act)) {
       handleItemAction(act, item);
     } else if (act === 'publish') {
@@ -1330,7 +1333,7 @@ function openBatch(sale, done) {
 }
 
 // Fotos do item em tela cheia, com as ações de compra.
-function openItemViewer(sale, item, { isOwner, ended, hasPix, onAction }) {
+function openItemViewer(sale, item, { isOwner, ended, hasPix, chatOn = true, onAction }) {
   const photos = itemPhotos(item);
   const canBuy = !isOwner && item.status === 'disponivel' && !ended;
   const { el, close } = openModal(`
@@ -1344,7 +1347,7 @@ function openItemViewer(sale, item, { isOwner, ended, hasPix, onAction }) {
       ${item.description ? `<p class="item-desc">${esc(item.description).replace(/\n/g, '<br>')}</p>` : ''}
     </div>
     <div class="actions">
-      ${canBuy ? `<button class="btn primary" data-a="interest">${icon.chat}Tenho interesse: conversar</button>` : ''}
+      ${canBuy && chatOn ? `<button class="btn primary" data-a="interest">${icon.chat}Tenho interesse: conversar</button>` : ''}
       ${canBuy && hasPix && Number(item.price) > 0 ? `<button class="btn pix" data-a="pix">${icon.pix}Pagar com Pix</button>` : ''}
       ${isOwner ? '<button class="btn" data-a="edit-item">Editar item</button>' : ''}
       <button class="btn" data-close>Fechar</button>
@@ -1510,7 +1513,7 @@ async function openPix(sale, item, sendChat) {
     <button class="btn primary" data-copy>Copiar código Pix (copia e cola)</button>
     <p class="hint">Recebedor: <strong>${esc(receiver)}</strong>. Confira o nome no app do banco antes de confirmar.</p>
     <div class="actions">
-      <button class="btn primary" data-paid>${icon.chat}Avisar o vendedor que paguei</button>
+      ${sale.owner?.chat_enabled === false ? '' : `<button class="btn primary" data-paid>${icon.chat}Avisar o vendedor que paguei</button>`}
       <button class="btn" data-close>Fechar</button>
     </div>`, 'pix-modal');
   qrSvg(code)
@@ -1524,7 +1527,8 @@ async function openPix(sale, item, sendChat) {
       prompt('Copie o código Pix:', code);
     }
   };
-  el.querySelector('[data-paid]').onclick = () => {
+  const paid = el.querySelector('[data-paid]');
+  if (paid) paid.onclick = () => {
     close();
     sendChat(`Olá! Fiz o Pix de ${brl(item.price)} por este item. Podemos combinar a retirada?`);
   };
@@ -2287,7 +2291,7 @@ async function viewMine(ctx) {
 async function openChat(sale, item, text = '') {
   if (!requireLogin(`/venda/${sale.id}`, 'Entre para conversar com o vendedor.')) return;
   const { data: id, error } = await sb.rpc('start_conversation', { p_item: item.id });
-  if (error) return toast(error.message, 'error', /Limite|encontrado|é seu/.test(error.message) ? null : error);
+  if (error) return toast(error.message, 'error', /Limite|encontrado|é seu|não recebe/.test(error.message) ? null : error);
   try {
     if (text) sessionStorage.setItem(`chat-rascunho-${id}`, text);
   } catch {}
@@ -2507,7 +2511,8 @@ async function viewConversation(ctx, id) {
       input.value = body;
       grow();
       paint();
-      return toast(/Muitas mensagens/.test(error.message) ? error.message : 'Não foi possível enviar. Tente de novo.', 'error', /Muitas/.test(error.message) ? null : error);
+      const known = /Muitas mensagens|desligou o chat/.test(error.message);
+      return toast(known ? error.message : 'Não foi possível enviar. Tente de novo.', 'error', known ? null : error);
     }
     if (messages.some((x) => x.id === data.id)) messages.splice(i, 1); // o tempo real chegou antes
     else messages[i] = data;
@@ -2736,6 +2741,11 @@ async function viewProfile(ctx) {
         <input name="name" required maxlength="80" value="${esc(state.profile?.name)}">
       </label>
       <fieldset class="pix-box">
+        <legend>${icon.chat} Chat com compradores</legend>
+        <label class="check"><input type="checkbox" name="chat_enabled" ${state.profile?.chat_enabled === false ? '' : 'checked'}> Receber mensagens dos compradores pelo chat</label>
+        <p class="hint">Desligue se você só quer divulgar a venda: o botão "Tenho interesse" some das suas vendas e ninguém manda mensagem, nem nas conversas que já existem. Você continua vendo e respondendo as conversas antigas.</p>
+      </fieldset>
+      <fieldset class="pix-box">
         <legend>${icon.whatsapp} WhatsApp (opcional)</legend>
         <p class="hint">Os compradores falam com você pelo <strong>chat do app</strong>, sem ver seu número. Se preferir, libere também o WhatsApp.</p>
         <label>WhatsApp com DDD
@@ -2811,7 +2821,7 @@ async function viewProfile(ctx) {
     if (pixRaw && !pix_key) return toast(`Chave Pix inválida para o tipo "${PIX_TYPES[form.pix_type.value]}".`, 'error');
     const pix_name = pix_key ? form.pix_name.value.trim() || (form.name.value.trim().slice(0, 25)) : null;
 
-    const p1 = await sb.from('profiles').update({ name: form.name.value.trim() }).eq('id', state.user.id);
+    const p1 = await sb.from('profiles').update({ name: form.name.value.trim(), chat_enabled: form.chat_enabled.checked }).eq('id', state.user.id);
     if (p1.error) return toast(p1.error.message, 'error', p1.error);
     if (showWhatsapp !== !!c.show_whatsapp) {
       const sw = await sb.from('contacts').update({ show_whatsapp: showWhatsapp }).eq('user_id', state.user.id);
