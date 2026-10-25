@@ -58,6 +58,12 @@ test.describe('Banco: visitante sem login', () => {
     expect(test.ok()).toBe(false);
   });
 
+  test('não dispara a limpeza das fotos', async ({ request }) => {
+    expect((await rpc(request, 'claim_photo_cleanup', { p_secret: 'errada', p_dry_run: true })).ok()).toBe(false);
+    const clean = await request.post(`${SUPABASE_URL}/functions/v1/limpar-fotos`, { headers: { ...headers, 'x-push-secret': 'errada' }, data: { dry_run: true } });
+    expect(clean.ok()).toBe(false);
+  });
+
   test('não lê nem cria notificações', async ({ request }) => {
     const res = await request.get(rest('notifications?select=*'), { headers });
     if (res.ok()) expect(await res.json()).toEqual([]);

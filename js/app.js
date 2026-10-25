@@ -337,7 +337,7 @@ function saleCard(s) {
   const dist = myPosition() ? formatDistance(distanceKm(myPosition(), s)) : '';
   return `
     <a class="sale-card ${s.type === 'mudanca' ? 'highlight' : ''}" href="#/venda/${s.id}">
-      <div class="thumb type-bg-${s.type}" ${s.cover_url ? `style="background-image:url('${esc(s.cover_url)}')"` : ''}>
+      <div class="thumb type-bg-${s.type}" ${s.cover_url ? `style="background-image:url('${esc(thumbUrl(s.cover_url))}')"` : ''}>
         ${s.cover_url ? '' : icon.tag}
         ${fav ? `<span class="fav-dot" title="Favorita">${icon.heart}</span>` : ''}
       </div>
@@ -380,10 +380,15 @@ function askPosition() {
 const MAX_PHOTOS = 6;
 const itemPhotos = (it) => (it.photos?.length ? it.photos : it.photo_url ? [it.photo_url] : []);
 
+// Fotos enviadas a partir de agora têm uma miniatura ao lado (abc.f.webp → abc.t.webp), usada em
+// listas, cards e chat. Fotos antigas e de fora do app continuam usando a própria foto.
+const THUMB_OF = /\.f\.(webp|jpg)$/;
+const thumbUrl = (u) => (u && u.includes('/object/public/photos/') && THUMB_OF.test(u) ? u.replace(THUMB_OF, '.t.$1') : u);
+
 function itemPhoto(it) {
   const photos = itemPhotos(it);
   return photos.length
-    ? `<img src="${esc(photos[0])}" alt="" loading="lazy">${photos.length > 1 ? `<span class="photo-count">${icon.camera}${photos.length}</span>` : ''}`
+    ? `<img src="${esc(thumbUrl(photos[0]))}" alt="" loading="lazy">${photos.length > 1 ? `<span class="photo-count">${icon.camera}${photos.length}</span>` : ''}`
     : `<div class="noimg">${icon.tag}</div>`;
 }
 
@@ -400,7 +405,10 @@ async function removeStoredPhotos(urls) {
   ]);
   if (items.error || sales.error) return; // na dúvida, não apaga
   const inUse = new Set([...items.data.flatMap((i) => [i.photo_url, ...(i.photos || [])]), ...sales.data.map((s) => s.cover_url)]);
-  const paths = own.filter((u) => !inUse.has(u)).map((u) => decodeURIComponent(u.split(marker)[1]));
+  const paths = own.filter((u) => !inUse.has(u)).flatMap((u) => {
+    const path = decodeURIComponent(u.split(marker)[1]);
+    return THUMB_OF.test(path) ? [path, path.replace(THUMB_OF, '.t.$1')] : [path];
+  });
   if (paths.length) await sb.storage.from('photos').remove(paths).catch(() => {});
 }
 
@@ -963,10 +971,10 @@ const blobToBase64 = (blob) =>
 // Devolve { title, description, category, price } ou null se a IA não estiver disponível.
 async function describePhoto(file) {
   if (aiAvailable === false) return null;
-  let blob = await resizeImage(file, 768, 0.75).catch(() => null);
+  let blob = await resizeImage(file, 768, 0.75, 'image/jpeg').catch(() => null);
   if (!blob && isHeic(file)) {
     const jpeg = await convertHeic(file);
-    blob = jpeg && (await resizeImage(jpeg, 768, 0.75).catch(() => null));
+    blob = jpeg && (await resizeImage(jpeg, 768, 0.75, 'image/jpeg').catch(() => null));
   }
   if (!blob) return null;
   const { data, error } = await sb.functions.invoke('descrever-item', {
@@ -1769,7 +1777,9 @@ function loadImage(file) {
   });
 }
 
-async function resizeImage(file, max = 1280, quality = 0.8) {
+// Reduz a foto. WebP fica uns 30% menor que JPG; o navegador que não grava WebP (Safari antigo)
+// devolve PNG, e aí a foto sai em JPG.
+async function resizeImage(file, max = 1080, quality = 0.8, type = 'image/webp') {
   const img = await loadImage(file);
   const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
   const canvas = document.createElement('canvas');
@@ -1777,7 +1787,9 @@ async function resizeImage(file, max = 1280, quality = 0.8) {
   canvas.height = Math.round(img.naturalHeight * scale);
   canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
   URL.revokeObjectURL(img.src);
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+  const encode = (t) => new Promise((resolve) => canvas.toBlob(resolve, t, quality));
+  const blob = await encode(type);
+  return blob && blob.type === type ? blob : encode('image/jpeg');
 }
 
 const UPLOAD_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -1835,10 +1847,17 @@ async function uploadPhoto(file) {
     blob = await stripMetadata(file);
   }
   const type = blob.type || 'image/jpeg';
-  const path = `${state.user.id}/${crypto.randomUUID()}.${UPLOAD_TYPES[type] || 'jpg'}`;
-  const { error } = await sb.storage.from('photos').upload(path, blob, { contentType: type, cacheControl: '31536000' });
+  const ext = UPLOAD_TYPES[type] || 'jpg';
+  const bucket = sb.storage.from('photos');
+  const opts = { contentType: type, cacheControl: '31536000' };
+  const base = `${state.user.id}/${crypto.randomUUID()}`;
+  // Miniatura para listas e cards (~30 KB). Sem ela a foto vai sem o ".f" e as listas usam a própria foto.
+  const small = (ext === 'webp' || ext === 'jpg') && (await resizeImage(blob, 400, 0.7, type).catch(() => null));
+  const withThumb = small?.type === type && !(await bucket.upload(`${base}.t.${ext}`, small, opts)).error;
+  const path = withThumb ? `${base}.f.${ext}` : `${base}.${ext}`;
+  const { error } = await bucket.upload(path, blob, opts);
   if (error) throw new Error(`Erro ao enviar a foto: ${error.message}`);
-  return sb.storage.from('photos').getPublicUrl(path).data.publicUrl;
+  return bucket.getPublicUrl(path).data.publicUrl;
 }
 
 // ---------------------------------------------------------------------
@@ -2114,7 +2133,7 @@ function listenChat() {
 
 const STATUS_SHORT = { disponivel: 'Disponível', reservado: 'Reservado', vendido: 'Vendido' };
 const clock = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-const thumb = (url) => (url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="chat-noimg">${icon.tag}</span>`);
+const thumb = (url) => (url ? `<img src="${esc(thumbUrl(url))}" alt="" loading="lazy">` :`<span class="chat-noimg">${icon.tag}</span>`);
 
 async function viewChats(ctx) {
   if (!requireLogin('/chat', 'Entre para ver suas conversas.')) return;
