@@ -557,3 +557,7 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 .near-summary { margin: 0 0 4px; color: var(--muted); }
 .near-summary strong { color: var(--ink); }
 .leaflet-pane svg { width: auto; height: auto; } /* a regra geral de ícones (svg 1.1em) cortava o círculo do 'Perto de mim' */
+
+/* Venda só de divulgação (vendedor desligou o chat) */
+.notice.only-promo { flex-direction: row; align-items: flex-start; gap: 8px; margin: 10px 0 0; }
+.notice.only-promo svg { margin-top: 3px; color: var(--brand); }
