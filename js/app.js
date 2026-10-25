@@ -232,12 +232,14 @@ function updateBadge() {
 // uma notificação, a tela do chat busca o que chegou nesse meio-tempo ('chat-resync').
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  refreshUnread();
+  if (!openConversation) refreshUnread(); // com uma conversa aberta, quem atualiza é a própria conversa
   window.dispatchEvent(new Event('chat-resync'));
 });
 navigator.serviceWorker?.addEventListener('message', (e) => {
   if (e.data?.type !== 'push') return;
-  refreshUnread(true);
+  // Mensagem da conversa que está aberta: ela já é marcada como lida, sem número no ícone do chat.
+  const here = openConversation && e.data.url?.endsWith(`/chat/${openConversation}`) && document.visibilityState === 'visible';
+  if (!here) refreshUnread(true);
   window.dispatchEvent(new Event('chat-resync'));
 });
 
@@ -2363,7 +2365,7 @@ async function viewConversation(ctx, id) {
     if (m.conversation_id !== id || messages.some((x) => x.id === m.id)) return;
     messages.push(m);
     paint();
-    if (m.sender_id !== state.user.id) sb.rpc('mark_conversation_read', { p_conv: id });
+    if (m.sender_id !== state.user.id) sb.rpc('mark_conversation_read', { p_conv: id }).then(() => refreshUnread(true));
   };
   // Mensagens que chegaram sem o tempo real (app em segundo plano, conexão caída).
   let syncing = false;
@@ -2376,7 +2378,8 @@ async function viewConversation(ctx, id) {
       if (last) q = q.gt('created_at', last);
       const { data } = await q;
       const fresh = (data || []).filter((m) => !messages.some((x) => x.id === m.id));
-      if (!fresh.length || openConversation !== id) return;
+      if (openConversation !== id) return;
+      if (!fresh.length) return void refreshUnread();
       messages.push(...fresh);
       messages.sort((a, b) => !!a.pending - !!b.pending || a.created_at.localeCompare(b.created_at));
       paint();
