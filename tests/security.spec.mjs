@@ -76,6 +76,14 @@ test.describe('Banco: visitante sem login', () => {
     expect((await rpc(request, 'publish_sale', { p_sale: UUID })).ok()).toBe(false);
   });
 
+  test('não modera vendas nem vê moderadores', async ({ request }) => {
+    expect((await rpc(request, 'moderate_sale', { p_sale: UUID, p_show: true })).ok()).toBe(false);
+    expect(await (await rpc(request, 'is_moderator')).json()).toBe(false);
+    const mods = await request.get(rest('moderators?select=*'), { headers });
+    if (mods.ok()) expect(await mods.json()).toEqual([]);
+    expect(await (await request.get(rest('sales?select=id&hidden=eq.true'), { headers })).json()).toEqual([]);
+  });
+
   test('não publica venda nem item', async ({ request }) => {
     const sale = await request.post(rest('sales'), {
       headers,

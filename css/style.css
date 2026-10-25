@@ -574,3 +574,8 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 .viewer .status-toggle { justify-content: center; }
 .photo-tile .photo { aspect-ratio: 1; overflow: hidden; }
 .photo-tile .photo img { position: absolute; inset: 0; }
+
+/* Moderação: aparece só para moderadores na página da venda */
+.mod-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--radius); border: 1.5px solid var(--danger); }
+.mod-bar strong, .mod-bar #mod-reports { flex: 1 1 100%; }
+.mod-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; }

@@ -61,6 +61,7 @@ PWA para encontrar e divulgar **vendas de garagem, bazares e vendas de mudança*
 17. Rode [`supabase/012_rascunho.sql`](supabase/012_rascunho.sql): venda nova (ou duplicada) começa como rascunho, visível só para quem criou. Antes de publicar, o app mostra todos os preços para revisão, destacando os sugeridos pela IA. As vendas que já existiam continuam publicadas.
 18. Rode [`supabase/013_chat_opcional.sql`](supabase/013_chat_opcional.sql): o vendedor pode desligar o chat no perfil (para quem só quer divulgar a venda). Com ele desligado, compradores não abrem conversas nem mandam mensagens.
 19. Rode [`supabase/014_so_fotos.sql`](supabase/014_so_fotos.sql): o vendedor escolhe, em cada venda, mostrar os itens "só fotos" (sem título, preço nem descrição). A IA grava um título escondido, usado só na busca e no chat.
+20. Rode [`supabase/015_vendas_reais.sql`](supabase/015_vendas_reais.sql): barreiras contra vendas falsas (local no DF, começa em até 60 dias, dura até 7, só publica com item; 5 vendas criadas por dia e 3 no ar por conta; 3 denúncias escondem a venda). Depois, cadastre-se como moderador com o comando que está no topo do arquivo.
 
 ### 2. GitHub Pages
 
@@ -98,7 +99,9 @@ Para prévias imediatas, dispare o workflow manualmente (**Actions > Publicar no
 ## Moderação
 
 - Denúncias ficam em `public.reports` (veja pelo **Table Editor** do Supabase).
-- Para tirar uma venda do ar sem apagá-la: `update sales set hidden = true where id = '…';`
+- Com 3 denúncias de pessoas diferentes, a venda sai do ar sozinha e o dono é avisado. Moderadores (tabela `public.moderators`) recebem um aviso na central de notificações e, na página da venda, veem as denúncias e os botões **Reexibir venda**, **Manter oculta** ou **Ocultar venda**.
+- Conta com 2 vendas ocultas pela moderação não cria nem publica vendas novas.
+- Para tirar uma venda do ar sem apagá-la pelo SQL: `update sales set hidden = true where id = '…';`
 
 ## Estrutura
 
