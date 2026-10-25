@@ -6,7 +6,7 @@ import webpush from 'npm:web-push@3.6.7';
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
 const ORIGINS = ['https://garagesalebsb.github.io', 'http://localhost:8000', 'http://localhost:4173'];
-const SITE_URL = 'https://garagesalebsb.github.io/desapego-brasilia';
+const SITE_URL = 'https://garagesalebsb.github.io/desapega';
 const VAPID_PUBLIC_KEY = 'BPCCGwRTzsUQVKTms2XJiZQ5UxAe3Mhd3SUiBhRJ2VoSW8rQAbrbZ9VSN8MrWPgKsvrTeol4KrfrxXXApCvbjwk';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

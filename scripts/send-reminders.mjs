@@ -11,7 +11,7 @@ const ANON_KEY = pick('SUPABASE_ANON_KEY');
 const VAPID_PUBLIC_KEY = pick('VAPID_PUBLIC_KEY');
 
 const { VAPID_PRIVATE_KEY, REMINDERS_SECRET, KIND } = process.env;
-const SITE_URL = (process.env.SITE_URL || 'https://garagesalebsb.github.io/desapego-brasilia').replace(/\/$/, '');
+const SITE_URL = (process.env.SITE_URL || 'https://garagesalebsb.github.io/desapega').replace(/\/$/, '');
 if (!VAPID_PRIVATE_KEY || !REMINDERS_SECRET) throw new Error('Faltam os segredos VAPID_PRIVATE_KEY e REMINDERS_SECRET.');
 if (!['vespera', 'hoje'].includes(KIND)) throw new Error(`KIND inválido: ${KIND}`);
 

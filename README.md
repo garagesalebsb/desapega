@@ -62,6 +62,7 @@ PWA para encontrar e divulgar **vendas de garagem, bazares e vendas de mudança*
 18. Rode [`supabase/013_chat_opcional.sql`](supabase/013_chat_opcional.sql): o vendedor pode desligar o chat no perfil (para quem só quer divulgar a venda). Com ele desligado, compradores não abrem conversas nem mandam mensagens.
 19. Rode [`supabase/014_so_fotos.sql`](supabase/014_so_fotos.sql): o vendedor escolhe, em cada venda, mostrar os itens "só fotos" (sem título, preço nem descrição). A IA grava um título escondido, usado só na busca e no chat.
 20. Rode [`supabase/015_vendas_reais.sql`](supabase/015_vendas_reais.sql): barreiras contra vendas falsas (local no DF, começa em até 60 dias, dura até 7, só publica com item; 5 vendas criadas por dia e 3 no ar por conta; 3 denúncias escondem a venda). Depois, cadastre-se como moderador com o comando que está no topo do arquivo.
+21. Rode [`supabase/016_novo_nome_repositorio.sql`](supabase/016_novo_nome_repositorio.sql) depois de renomear o repositório para `desapega` (o site passou de `/desapego-brasilia/` para `/desapega/`; o repositório `desapego-brasilia` ficou só para redirecionar os links antigos).
 
 ### 2. GitHub Pages
 
