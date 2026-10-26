@@ -227,13 +227,16 @@ async function setUser(user) {
   state.contact = null;
   state.favorites = new Set();
   state.moderator = false;
+  state.prefs = undefined; // undefined = não carregou; null = nunca respondeu o convite dos alertas
   if (user) {
-    const [p, c, f, m] = await Promise.all([
+    const [p, c, f, m, pr] = await Promise.all([
       sb.from('profiles').select('id,name,chat_enabled').eq('id', user.id).maybeSingle(),
       sb.from('contacts').select('whatsapp,phone_verified,pix_key,pix_name,show_whatsapp').eq('user_id', user.id).maybeSingle(),
       sb.from('favorites').select('sale_id').eq('user_id', user.id),
       sb.from('moderators').select('user_id').eq('user_id', user.id).maybeSingle(),
+      sb.from('preferences').select('home_region,nearby,regions,interests,alerts,news_email').eq('user_id', user.id).maybeSingle(),
     ]);
+    state.prefs = pr.error ? undefined : pr.data;
     state.profile = p.data;
     state.contact = c.data;
     state.favorites = new Set((f.data || []).map((r) => r.sale_id));
@@ -1022,7 +1025,7 @@ async function viewSale(ctx, id) {
       const on = await toggleFavorite(sale.id);
       btn.classList.toggle('on', on);
       btn.querySelector('span').textContent = on ? 'Salva' : 'Salvar';
-      if (on && !offerReminders()) maybeSuggestInstall('favorite');
+      if (on && !offerAlerts() && !offerReminders()) maybeSuggestInstall('favorite');
     } else if (act === 'status') {
       setStatus(item, btn.dataset.status);
     } else if (act === 'view-item') {
@@ -1961,7 +1964,7 @@ async function toggleFavorite(saleId) {
 // Notificações no celular: mensagens do chat e lembretes das vendas salvas (véspera às 19h, dia às 7h)
 // ---------------------------------------------------------------------
 const REMINDER_TIMES = 'na véspera, às 19h, e no dia, às 7h';
-const PUSH_WHAT = `as mensagens do chat na hora em que chegam e lembretes das vendas que você salvou (${REMINDER_TIMES})`;
+const PUSH_WHAT = `as mensagens do chat na hora em que chegam, lembretes das vendas que você salvou (${REMINDER_TIMES}) e, se ativar, alertas de vendas novas perto de você`;
 
 // Convite para ativar: depois de salvar uma venda ou de mandar a primeira mensagem, uma vez por semana no máximo.
 // Devolve true se mostrou o convite.
@@ -2001,6 +2004,90 @@ async function turnOnReminders() {
 }
 
 // Caixa de notificações: no perfil (completa) e nas favoritas/conversas (só o convite, quando ainda não ativou).
+// ---------------------------------------------------------------------
+// Alertas de vendas perto de você e novidades por e-mail (supabase/017)
+// ---------------------------------------------------------------------
+const NEARBY_KM = 12;
+const nearbyRegions = (name) => {
+  const home = regionByName(name);
+  return home ? REGIONS.filter((r) => distanceKm(home, r) <= NEARBY_KM).map((r) => r.name) : [];
+};
+
+// Campos usados no convite (alerta já marcado) e no perfil. As novidades começam sempre desmarcadas.
+function prefsFields(p, { suggest = false } = {}) {
+  const home = p?.home_region || localStorage.getItem('regiao') || '';
+  const interests = new Set(p?.interests || []);
+  return `
+    <label class="check"><input type="checkbox" name="alerts" ${(p ? p.alerts : suggest) ? 'checked' : ''}> Avisar quando publicarem uma venda perto de mim</label>
+    <label>Região onde você mora
+      <select name="home_region">
+        <option value="">Escolha a região</option>
+        ${REGIONS.map((r) => `<option ${r.name === home ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" name="nearby" ${p?.nearby === false ? '' : 'checked'}> Incluir as regiões vizinhas (até ${NEARBY_KM} km)</label>
+    <p class="hint">Só me avise de vendas com (deixe tudo desmarcado para receber todas):</p>
+    <div class="interest-grid">
+      ${Object.entries(CATEGORIES).filter(([k]) => k !== 'outros').map(([k, label]) => `
+        <label class="chip check-chip"><input type="checkbox" name="interest" value="${k}" ${interests.has(k) ? 'checked' : ''}>${esc(label)}</label>`).join('')}
+    </div>
+    <label class="check"><input type="checkbox" name="news_email" ${p?.news_email ? 'checked' : ''}> Quero receber novidades do ${esc(CONFIG.APP_NAME)} por e-mail (no máximo 2 por mês)</label>`;
+}
+
+function readPrefs(form) {
+  const home = form.home_region.value || null;
+  return {
+    alerts: form.alerts.checked && !!home,
+    home_region: home,
+    nearby: form.nearby.checked,
+    regions: home ? (form.nearby.checked ? nearbyRegions(home) : [home]) : [],
+    interests: [...form.querySelectorAll('[name=interest]:checked')].map((i) => i.value),
+    news_email: form.news_email.checked,
+  };
+}
+
+async function savePrefs(row) {
+  const { error } = await sb.from('preferences').upsert({ ...row, user_id: state.user.id });
+  if (error) throw error;
+  state.prefs = row;
+}
+
+// Convite único, depois de salvar a primeira venda (quem já respondeu muda pelo perfil).
+function offerAlerts() {
+  if (state.prefs !== null) return false;
+  const { el, close } = openModal(`
+    <h2>Quer ser avisado de vendas perto de você?</h2>
+    <p class="hint">Quando alguém publicar uma venda na sua região, você recebe um aviso (no máximo 3 por dia). Dá para mudar quando quiser em Menu &gt; Dados da conta.</p>
+    <form class="form prefs-form">
+      ${prefsFields(null, { suggest: true })}
+      <div class="actions column">
+        <button class="btn primary">${icon.bell}Salvar</button>
+        <button type="button" class="btn" data-skip>Agora não</button>
+      </div>
+    </form>`, '', { keep: true });
+  const form = el.querySelector('form');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const row = readPrefs(form);
+    if (form.alerts.checked && !row.home_region) return toast('Escolha a região onde você mora.', 'error');
+    try {
+      await savePrefs(row);
+    } catch (err) {
+      return toast('Não foi possível salvar suas preferências.', 'error', err);
+    }
+    close();
+    // Com alerta ligado, o aviso no celular precisa das notificações ativas neste aparelho.
+    if (row.alerts && pushSupport() === 'ok' && Notification.permission === 'default') await turnOnReminders();
+    else toast(row.alerts ? `Pronto! Avisaremos de vendas em ${row.home_region}${row.nearby ? ' e arredores' : ''}.` : 'Preferências salvas.');
+  });
+  el.querySelector('[data-skip]').onclick = async () => {
+    close();
+    // Guarda a resposta para não perguntar de novo.
+    await savePrefs({ alerts: false, home_region: null, nearby: true, regions: [], interests: [], news_email: false }).catch(() => {});
+  };
+  return true;
+}
+
 async function mountReminders(el, { compact = false } = {}) {
   const support = pushSupport();
   const active = await remindersActive().catch(() => false);
@@ -2774,6 +2861,8 @@ function notificationText(n) {
       };
     case 'venda_oculta':
       return { icon: icon.flag, cls: 'cancel', title: 'Sua venda saiu do ar', body: `"${t}" foi ocultada após denúncias e não aparece mais nas buscas.` };
+    case 'venda_perto':
+      return { icon: icon.pin, cls: 'remind', title: `Venda nova perto de você: ${t}`, body: `${n.detail || 'Na sua região'}. Veja os itens antes de todo mundo.` };
     case 'venda_liberada':
       return { icon: icon.flag, cls: 'saved', title: 'Sua venda voltou ao ar', body: `A moderação revisou "${t}" e ela aparece de novo nas buscas.` };
     case 'denuncia_revisar':
@@ -2956,6 +3045,11 @@ async function viewProfile(ctx) {
         </label>
       </fieldset>
 
+      <fieldset class="pix-box prefs-form">
+        <legend>${icon.bell} Alertas e novidades</legend>
+        ${prefsFields(state.prefs)}
+      </fieldset>
+
       <button class="btn primary big">Salvar</button>
     </form>
     <div class="form">
@@ -2998,8 +3092,16 @@ async function viewProfile(ctx) {
     if (pixRaw && !pix_key) return toast(`Chave Pix inválida para o tipo "${PIX_TYPES[form.pix_type.value]}".`, 'error');
     const pix_name = pix_key ? form.pix_name.value.trim() || (form.name.value.trim().slice(0, 25)) : null;
 
+    const prefs = readPrefs(form);
+    if (form.alerts.checked && !prefs.home_region) return toast('Para receber alertas, escolha a região onde você mora.', 'error');
+
     const p1 = await sb.from('profiles').update({ name: form.name.value.trim(), chat_enabled: form.chat_enabled.checked }).eq('id', state.user.id);
     if (p1.error) return toast(p1.error.message, 'error', p1.error);
+    try {
+      await savePrefs(prefs);
+    } catch (err) {
+      return toast(`Erro ao salvar os alertas: ${err.message}`, 'error', err);
+    }
     if (showWhatsapp !== !!c.show_whatsapp) {
       const sw = await sb.from('contacts').update({ show_whatsapp: showWhatsapp }).eq('user_id', state.user.id);
       if (sw.error) return toast(`Erro ao salvar a opção do WhatsApp: ${sw.error.message}`, 'error', sw.error);

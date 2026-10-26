@@ -63,6 +63,8 @@ PWA para encontrar e divulgar **vendas de garagem, bazares e vendas de mudança*
 19. Rode [`supabase/014_so_fotos.sql`](supabase/014_so_fotos.sql): o vendedor escolhe, em cada venda, mostrar os itens "só fotos" (sem título, preço nem descrição). A IA grava um título escondido, usado só na busca e no chat.
 20. Rode [`supabase/015_vendas_reais.sql`](supabase/015_vendas_reais.sql): barreiras contra vendas falsas (local no DF, começa em até 60 dias, dura até 7, só publica com item; 5 vendas criadas por dia e 3 no ar por conta; 3 denúncias escondem a venda). Depois, cadastre-se como moderador com o comando que está no topo do arquivo.
 21. Rode [`supabase/016_novo_nome_repositorio.sql`](supabase/016_novo_nome_repositorio.sql) depois de renomear o repositório para `desapega` (o site passou de `/desapego-brasilia/` para `/desapega/`; o repositório `desapego-brasilia` ficou só para redirecionar os links antigos).
+22. Rode [`supabase/017_alertas_e_novidades.sql`](supabase/017_alertas_e_novidades.sql): cada pessoa escolhe a região onde mora e os interesses e recebe um aviso (até 3 por dia) quando uma venda nova é publicada ali; também pode aceitar receber novidades por e-mail (a lista de quem aceitou está no fim do arquivo).
+23. **E-mail próprio para o login por link**: o envio padrão do Supabase só entrega para os e-mails da sua equipe e poucos por hora. Em **Authentication → Emails → SMTP Settings**, configure um provedor (ex.: Brevo, 300 e-mails por dia grátis) e, em **Templates → Magic Link**, troque o texto para português.
 
 ### 2. GitHub Pages
 
