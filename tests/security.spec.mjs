@@ -76,6 +76,13 @@ test.describe('Banco: visitante sem login', () => {
     expect((await rpc(request, 'publish_sale', { p_sale: UUID })).ok()).toBe(false);
   });
 
+  test('não vê nem grava preferências de alertas, e não dispara alertas sem a senha', async ({ request }) => {
+    const prefs = await request.get(rest('preferences?select=*'), { headers });
+    if (prefs.ok()) expect(await prefs.json()).toEqual([]);
+    expect((await request.post(rest('preferences'), { headers, data: { user_id: UUID, alerts: true, news_email: true } })).ok()).toBe(false);
+    expect((await rpc(request, 'alert_push_targets', { p_secret: 'errada', p_sale: UUID })).ok()).toBe(false);
+  });
+
   test('não modera vendas nem vê moderadores', async ({ request }) => {
     expect((await rpc(request, 'moderate_sale', { p_sale: UUID, p_show: true })).ok()).toBe(false);
     expect(await (await rpc(request, 'is_moderator')).json()).toBe(false);

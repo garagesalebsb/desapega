@@ -1,6 +1,7 @@
 // Notificação no celular quando chega mensagem no chat.
 // O banco chama esta função quando uma mensagem é gravada (gatilho messages_push) e ela avisa
-// os aparelhos da outra pessoa da conversa. Usa os mesmos segredos dos lembretes
+// os aparelhos da outra pessoa da conversa. Também avisa quem pediu alerta de vendas novas na
+// região (gatilho sales_alert, supabase/017). Usa os mesmos segredos dos lembretes
 // (VAPID_PRIVATE_KEY e REMINDERS_SECRET), gravados aqui pelo workflow funcoes.yml.
 import webpush from 'npm:web-push@3.6.7';
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
@@ -17,7 +18,15 @@ const cors = (req: Request) => ({
   Vary: 'Origin',
 });
 
-type Target = { endpoint: string; p256dh: string; auth: string; conversation_id?: string; item_title?: string; sender_name?: string; body?: string };
+type Target = {
+  endpoint: string; p256dh: string; auth: string;
+  conversation_id?: string; item_title?: string; sender_name?: string; body?: string; // chat
+  sale_id?: string; sale_title?: string; region?: string; starts_on?: string; // venda nova
+};
+
+// "sáb., 01/11" no horário de Brasília.
+const fmtDay = (d: string) =>
+  new Date(`${d}T12:00:00-03:00`).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
 
 Deno.serve(async (req) => {
   const headers = { ...cors(req), 'Content-Type': 'application/json' };
@@ -42,7 +51,7 @@ Deno.serve(async (req) => {
     return res.json();
   };
 
-  let body: { message_id?: string; hook_message_id?: string; test_user?: string };
+  let body: { message_id?: string; hook_message_id?: string; hook_alert_sale?: string; test_user?: string };
   try {
     body = await req.json();
   } catch {
@@ -62,6 +71,15 @@ Deno.serve(async (req) => {
     // Teste do administrador (com a senha): avisa todos os aparelhos de uma conta.
     targets = await rpc('push_targets_for_user', { p_user: body.test_user });
     payload = () => ({ title: 'Teste do chat', body: 'As notificações de mensagens estão funcionando.', url: `${SITE_URL}/#/chat`, tag: 'teste-chat' });
+  } else if (UUID.test(body.hook_alert_sale ?? '')) {
+    // Chamada do próprio banco ao publicar uma venda. Sem login: cada aviso sai uma vez só.
+    targets = await rpc('alert_push_targets', { p_sale: body.hook_alert_sale });
+    payload = (t) => ({
+      title: `Venda nova perto de você: ${t.sale_title}`,
+      body: `${t.region} · começa ${fmtDay(t.starts_on!)}. Toque para ver os itens.`,
+      url: `${SITE_URL}/#/venda/${t.sale_id}`,
+      tag: `venda-${t.sale_id}`,
+    });
   } else if (UUID.test(body.hook_message_id ?? '')) {
     // Chamada do próprio banco (gatilho em messages, supabase/010_chat_escala.sql). Sem login:
     // só avisa mensagens com menos de 5 minutos e ainda não avisadas, então repetir não gera aviso extra.
