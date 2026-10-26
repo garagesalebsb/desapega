@@ -3195,10 +3195,16 @@ async function boot() {
     return;
   }
 
-  const authError = new URLSearchParams(location.search).get('error_description');
+  // O retorno do login pode vir na busca (?code=, ?error=) ou, em links antigos e vencidos, no hash
+  // (#access_token=, #error=), que o roteador confundiria com uma página.
+  const search = new URLSearchParams(location.search);
+  const authHash = /^#(access_token|error)=/.test(location.hash) ? new URLSearchParams(location.hash.slice(1)) : null;
+  const authError = search.get('error_description') ?? authHash?.get('error_description');
   const { data } = await sb.auth.getSession();
-  if (location.search) history.replaceState(null, '', location.pathname + location.hash);
-  if (authError) toast(authError, 'error');
+  if (location.search || authHash) history.replaceState(null, '', location.pathname + (authHash ? '#/' : location.hash));
+  if (authHash?.get('error_code') === 'otp_expired') toast('Esse link já foi usado ou venceu. Peça outro na tela de Entrar.', 'error');
+  else if (authError) toast(authError, 'error');
+  else if (search.has('code') && !data.session) toast('Não deu para entrar com esse link. Abra-o no mesmo aparelho e navegador em que você pediu, ou peça outro.', 'error');
 
   const [, rv] = await Promise.all([setUser(data.session?.user ?? null), sb.rpc('require_phone_verification')]);
   state.requireVerification = !!rv.data;
