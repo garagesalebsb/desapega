@@ -6,6 +6,10 @@
   <title>Termos de Uso — Desapega</title>
   <link rel="icon" href="icons/favicon.png" type="image/png">
   <link rel="stylesheet" href="css/style.css">
+  <script>
+    // Aplica o tema escolhido no botão sol/lua do app.
+    try { var t = localStorage.getItem('tema'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
 </head>
 <body class="doc-page">
   <header class="topbar">
