@@ -3229,5 +3229,28 @@ async function boot() {
   render();
 }
 
+// Botão sol/lua do cabeçalho: alterna entre modo claro e escuro e lembra a escolha.
+const SUN = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>';
+const MOON = '<svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>';
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+const isDark = () => (document.documentElement.dataset.theme || (darkQuery.matches ? 'dark' : 'light')) === 'dark';
+
+function updateThemeToggle() {
+  const btn = document.getElementById('theme-toggle');
+  const label = isDark() ? 'Mudar para modo claro' : 'Mudar para modo escuro';
+  btn.innerHTML = isDark() ? SUN : MOON;
+  btn.setAttribute('aria-label', label);
+  btn.title = label;
+}
+
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const theme = isDark() ? 'light' : 'dark';
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem('tema', theme); } catch {}
+  updateThemeToggle();
+});
+darkQuery.addEventListener('change', updateThemeToggle);
+updateThemeToggle();
+
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 boot();

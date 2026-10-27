@@ -38,6 +38,24 @@
     color-scheme: dark;
   }
 }
+/* Modo escuro escolhido no botão sol/lua, mesmo com o sistema no claro. */
+:root[data-theme="dark"] {
+  --brand: #a3d46a;
+  --brand-ink: #12200a;
+  --brand-soft: #24331b;
+  --bg: #121511;
+  --surface: #1b1f19;
+  --ink: #eef2ea;
+  --muted: #9ea697;
+  --line: #2d3429;
+  --garagem: #8fb0f0;
+  --mudanca: #f6a54a;
+  --live: #8fd16a;
+  --on-accent: #10180c;
+  --bazar: #a78bfa;
+  --danger: #ff6b6b;
+  color-scheme: dark;
+}
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -410,6 +428,8 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 
 /* ---------- Central de notificações ---------- */
 .top-actions { display: flex; align-items: center; gap: 6px; }
+.theme-toggle { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink); cursor: pointer; }
+.theme-toggle svg { width: 22px; height: 22px; }
 .notif-link { position: relative; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; color: var(--ink); }
 .notif-link svg { width: 24px; height: 24px; }
 .notif-link[hidden] { display: none; }
