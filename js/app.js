@@ -2046,9 +2046,15 @@ function readPrefs(form) {
   };
 }
 
+// Atualiza e, se ainda não houver linha, insere. Não usa upsert: o ON CONFLICT DO UPDATE
+// tentaria regravar user_id, que o banco não deixa alterar (permission denied).
 async function savePrefs(row) {
-  const { error } = await sb.from('preferences').upsert({ ...row, user_id: state.user.id });
+  const { data, error } = await sb.from('preferences').update(row).eq('user_id', state.user.id).select('user_id');
   if (error) throw error;
+  if (!data.length) {
+    const { error: insertError } = await sb.from('preferences').insert({ ...row, user_id: state.user.id });
+    if (insertError) throw insertError;
+  }
   state.prefs = row;
 }
 
