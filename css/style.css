@@ -409,6 +409,7 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
   box-shadow: var(--shadow); font-size: .92rem;
 }
 .toast.error { background: var(--danger); color: #fff; }
+.toast-action { margin-left: 10px; padding: 4px 6px; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 2000; background: rgb(0 0 0 / .45); display: grid; place-items: end center; padding: 16px; }
 .modal { background: var(--surface); border-radius: 18px; padding: 18px; width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 10px; }
 .modal h2 { margin: 0; }
@@ -493,6 +494,16 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
   background: var(--surface); border: 1px solid var(--line); color: var(--ink); text-decoration: none;
 }
 .chat-row.unread { background: var(--brand-soft); border-color: transparent; }
+/* Arrastar para a esquerda apaga: o fundo vermelho aparece por trás da conversa. */
+.chat-swipe { position: relative; border-radius: var(--radius); overflow: hidden; }
+.chat-swipe-bg {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding-right: 18px;
+  background: var(--danger); color: #fff; font-weight: 600; font-size: .9rem;
+}
+.chat-swipe .chat-row { position: relative; touch-action: pan-y; user-select: none; -webkit-user-drag: none; transition: transform .2s ease; }
+.chat-swipe .chat-row.dragging { transition: none; }
+.chat-swipe .chat-row img { -webkit-user-drag: none; }
+.chat-swipe-hint { margin: 0 0 4px; font-size: .8rem; }
 .chat-row.unread strong::after { content: ''; display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: var(--brand); vertical-align: middle; }
 .chat-row time { align-self: flex-start; color: var(--muted); font-size: .78rem; white-space: nowrap; }
 .chat-thumb { flex: none; width: 52px; height: 52px; border-radius: 10px; overflow: hidden; background: var(--line); display: grid; place-items: center; }
