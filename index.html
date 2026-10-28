@@ -21,6 +21,8 @@
   <script>
     // Aplica o tema escolhido no botão sol/lua antes de desenhar a página.
     try { var t = localStorage.getItem('tema'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+    // Cor da barra do navegador escolhida no menu (js/app.js, barColor).
+    try { var c = localStorage.getItem('cor-barra'); if (/^#[0-9a-f]{6}$/i.test(c)) document.querySelector('meta[name="theme-color"]').content = c; } catch (e) {}
   </script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
   <script type="module" src="js/app.js"></script>

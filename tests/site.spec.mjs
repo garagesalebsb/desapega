@@ -146,6 +146,20 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByText('Entre para ver suas conversas')).toBeVisible();
   });
 
+  test('menu troca a cor da barra do navegador e ela continua ao reabrir', async ({ page }) => {
+    const bar = page.locator('meta[name="theme-color"]');
+    await page.goto('./#/menu');
+    await expect(bar).toHaveAttribute('content', '#4a8420');
+    await page.getByRole('button', { name: 'Roxo' }).click();
+    await expect(page.getByRole('button', { name: 'Roxo' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(bar).toHaveAttribute('content', '#6741d9');
+    await page.reload();
+    await expect(bar).toHaveAttribute('content', '#6741d9');
+    await page.getByRole('button', { name: 'Verde (padrão)' }).click();
+    await expect(bar).toHaveAttribute('content', '#4a8420');
+    expect(await page.evaluate(() => localStorage.getItem('cor-barra'))).toBeNull();
+  });
+
   test('foto do item abre a galeria', async ({ page, request }) => {
     const sale = await firstSale(request);
     test.skip(!sale, 'nenhuma venda publicada para testar');

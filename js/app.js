@@ -162,6 +162,7 @@ const icon = {
   doc: '<svg viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z"/><path d="M14 3.5v4h4M9 12h6M9 16h6"/></svg>',
   chevron: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
   target: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></svg>',
+  palette: '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c1.2 0 1.8-.9 1.4-2l-.4-1a1.5 1.5 0 0 1 1.4-2H17a4 4 0 0 0 4-4c0-5-4-9-9-9z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="14.5" cy="7" r="1"/></svg>',
   bell: '<svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>',
   pix: '<svg viewBox="0 0 24 24"><path d="M12 3.5 20.5 12 12 20.5 3.5 12z"/><path d="M8 12h8"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.2-3.8A8 8 0 1 1 8 19z"/><path d="M9 9.5c.5 2.5 2.5 4.5 5 5l1.2-1.2 2 1-.4 1.6c-4.4.4-9-4.2-8.6-8.6L9.8 7l1 2z"/></svg>',
@@ -2802,8 +2803,31 @@ async function viewConversation(ctx, id) {
 // ---------------------------------------------------------------------
 // Menu: dados da conta, minhas vendas e favoritas, notificações, páginas legais
 // ---------------------------------------------------------------------
+// Cor da barra do navegador (meta theme-color). Fica só neste aparelho; o index.html a aplica ao abrir.
+const BAR_DEFAULT = '#4a8420';
+const BAR_COLORS = [
+  [BAR_DEFAULT, 'Verde (padrão)'], ['#3563ad', 'Azul'], ['#6741d9', 'Roxo'], ['#c2255c', 'Rosa'],
+  ['#e8590c', 'Laranja'], ['#1c2319', 'Grafite'], ['#ffffff', 'Branco'],
+];
+const barColor = () => {
+  try {
+    const c = localStorage.getItem('cor-barra');
+    return /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : BAR_DEFAULT;
+  } catch {
+    return BAR_DEFAULT;
+  }
+};
+function setBarColor(color) {
+  document.querySelector('meta[name="theme-color"]').content = color;
+  try {
+    if (color === BAR_DEFAULT) localStorage.removeItem('cor-barra');
+    else localStorage.setItem('cor-barra', color);
+  } catch {}
+}
+
 async function viewMenu() {
-  const row = (href, ic, label, extra = '') =>
+  const current = barColor();
+  const row =(href, ic, label, extra = '') =>
     `<a class="menu-row" href="${href}"><span class="menu-icon">${ic}</span><span>${label}</span>${extra}<span class="menu-go">${icon.chevron}</span></a>`;
   const u = state.user;
   $view.innerHTML = `
@@ -2831,8 +2855,31 @@ async function viewMenu() {
         ${row('privacidade.html', icon.doc, 'Política de Privacidade')}
         ${row('termos.html', icon.doc, 'Termos de Uso')}
       </nav>
+      <section class="menu-list bar-colors" aria-labelledby="bar-colors-title">
+        <div class="menu-row">
+          <span class="menu-icon">${icon.palette}</span>
+          <span><span id="bar-colors-title">Cor da barra do navegador</span><small class="hint">Vale só neste aparelho.</small></span>
+        </div>
+        <div class="swatches">${BAR_COLORS.map(([c, name]) => `
+          <button type="button" class="swatch${c === current ? ' on' : ''}" data-color="${c}" style="--swatch:${c}" aria-label="${name}" title="${name}" aria-pressed="${c === current}"></button>`).join('')}
+          <label class="swatch custom${BAR_COLORS.some(([c]) => c === current) ? '' : ' on'}" title="Outra cor">
+            <input type="color" value="${current}" aria-label="Outra cor">
+          </label>
+        </div>
+      </section>
       ${u ? `<button class="btn big menu-logout" id="menu-logout">${icon.out}Sair da conta</button>` : ''}
     </div>`;
+  const pick = (color) => {
+    setBarColor(color);
+    const preset = BAR_COLORS.some(([c]) => c === color);
+    $view.querySelectorAll('.swatch').forEach((el) => {
+      const on = el.dataset.color ? el.dataset.color === color : !preset;
+      el.classList.toggle('on', on);
+      if (el.dataset.color) el.setAttribute('aria-pressed', String(on));
+    });
+  };
+  $view.querySelectorAll('.swatch[data-color]').forEach((b) => b.addEventListener('click', () => pick(b.dataset.color)));
+  $view.querySelector('.swatch.custom input').addEventListener('input', (e) => pick(e.target.value));
   document.getElementById('menu-logout')?.addEventListener('click', async () => {
     await disableReminders(sb).catch(() => {});
     await sb.auth.signOut();
