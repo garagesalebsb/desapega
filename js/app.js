@@ -2803,30 +2803,14 @@ async function viewConversation(ctx, id) {
 // ---------------------------------------------------------------------
 // Menu: dados da conta, minhas vendas e favoritas, notificações, páginas legais
 // ---------------------------------------------------------------------
-// Cor da barra do navegador (meta theme-color). Fica só neste aparelho; o index.html a aplica ao abrir.
-const BAR_DEFAULT = '#4a8420';
-const BAR_COLORS = [
-  [BAR_DEFAULT, 'Verde (padrão)'], ['#3563ad', 'Azul'], ['#6741d9', 'Roxo'], ['#c2255c', 'Rosa'],
+// Cor do app (barra do navegador e cor principal do tema): js/cor.js aplica e guarda neste aparelho.
+const APP_COLORS = [
+  [window.appColor.DEFAULT, 'Verde (padrão)'], ['#3563ad', 'Azul'], ['#6741d9', 'Roxo'], ['#c2255c', 'Rosa'],
   ['#e8590c', 'Laranja'], ['#1c2319', 'Grafite'], ['#ffffff', 'Branco'],
 ];
-const barColor = () => {
-  try {
-    const c = localStorage.getItem('cor-barra');
-    return /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : BAR_DEFAULT;
-  } catch {
-    return BAR_DEFAULT;
-  }
-};
-function setBarColor(color) {
-  document.querySelector('meta[name="theme-color"]').content = color;
-  try {
-    if (color === BAR_DEFAULT) localStorage.removeItem('cor-barra');
-    else localStorage.setItem('cor-barra', color);
-  } catch {}
-}
 
 async function viewMenu() {
-  const current = barColor();
+  const current = window.appColor.get();
   const row =(href, ic, label, extra = '') =>
     `<a class="menu-row" href="${href}"><span class="menu-icon">${ic}</span><span>${label}</span>${extra}<span class="menu-go">${icon.chevron}</span></a>`;
   const u = state.user;
@@ -2855,14 +2839,14 @@ async function viewMenu() {
         ${row('privacidade.html', icon.doc, 'Política de Privacidade')}
         ${row('termos.html', icon.doc, 'Termos de Uso')}
       </nav>
-      <section class="menu-list bar-colors" aria-labelledby="bar-colors-title">
+      <section class="menu-list app-colors" aria-labelledby="app-colors-title">
         <div class="menu-row">
           <span class="menu-icon">${icon.palette}</span>
-          <span><span id="bar-colors-title">Cor da barra do navegador</span><small class="hint">Vale só neste aparelho.</small></span>
+          <span><span id="app-colors-title">Cor do app</span><small class="hint">Muda a barra do navegador e os botões. Vale só neste aparelho.</small></span>
         </div>
-        <div class="swatches">${BAR_COLORS.map(([c, name]) => `
+        <div class="swatches">${APP_COLORS.map(([c, name]) => `
           <button type="button" class="swatch${c === current ? ' on' : ''}" data-color="${c}" style="--swatch:${c}" aria-label="${name}" title="${name}" aria-pressed="${c === current}"></button>`).join('')}
-          <label class="swatch custom${BAR_COLORS.some(([c]) => c === current) ? '' : ' on'}" title="Outra cor">
+          <label class="swatch custom${APP_COLORS.some(([c]) => c === current) ? '' : ' on'}" title="Outra cor">
             <input type="color" value="${current}" aria-label="Outra cor">
           </label>
         </div>
@@ -2870,8 +2854,8 @@ async function viewMenu() {
       ${u ? `<button class="btn big menu-logout" id="menu-logout">${icon.out}Sair da conta</button>` : ''}
     </div>`;
   const pick = (color) => {
-    setBarColor(color);
-    const preset = BAR_COLORS.some(([c]) => c === color);
+    window.appColor.set(color);
+    const preset = APP_COLORS.some(([c]) => c === color);
     $view.querySelectorAll('.swatch').forEach((el) => {
       const on = el.dataset.color ? el.dataset.color === color : !preset;
       el.classList.toggle('on', on);

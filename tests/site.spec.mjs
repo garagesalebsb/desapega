@@ -146,17 +146,25 @@ test.describe('Visitante sem login', () => {
     await expect(page.getByText('Entre para ver suas conversas')).toBeVisible();
   });
 
-  test('menu troca a cor da barra do navegador e ela continua ao reabrir', async ({ page }) => {
+  test('menu troca a cor do app (barra e tema) e ela continua ao reabrir', async ({ page }) => {
     const bar = page.locator('meta[name="theme-color"]');
+    const brand = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--brand').trim());
     await page.goto('./#/menu');
     await expect(bar).toHaveAttribute('content', '#4a8420');
     await page.getByRole('button', { name: 'Roxo' }).click();
     await expect(page.getByRole('button', { name: 'Roxo' })).toHaveAttribute('aria-pressed', 'true');
     await expect(bar).toHaveAttribute('content', '#6741d9');
+    expect(await brand()).toBe('#6741d9');
     await page.reload();
     await expect(bar).toHaveAttribute('content', '#6741d9');
+    expect(await brand()).toBe('#6741d9');
+    // Cor clara demais vira um tom legível nos botões; a barra fica com a cor escolhida.
+    await page.getByRole('button', { name: 'Branco' }).click();
+    await expect(bar).toHaveAttribute('content', '#ffffff');
+    expect(await brand()).not.toBe('#ffffff');
     await page.getByRole('button', { name: 'Verde (padrão)' }).click();
     await expect(bar).toHaveAttribute('content', '#4a8420');
+    expect(await brand()).toBe('#4a8420');
     expect(await page.evaluate(() => localStorage.getItem('cor-barra'))).toBeNull();
   });
 
