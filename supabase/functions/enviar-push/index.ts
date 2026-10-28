@@ -59,8 +59,9 @@ Deno.serve(async (req) => {
   }
 
   const chatPayload = (t: Target) => ({
-    title: `${t.sender_name} · ${t.item_title}`,
-    body: t.body ?? '',
+    // Título curto (só quem escreveu): o Android corta a linha, que ainda ganha o endereço do site.
+    title: t.sender_name ?? 'Mensagem nova',
+    body: `Sobre "${t.item_title}": ${t.body ?? ''}`,
     url: `${SITE_URL}/#/chat/${t.conversation_id}`,
     tag: `chat-${t.conversation_id}`, // várias mensagens da mesma conversa viram um aviso só
   });
