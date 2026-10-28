@@ -47,6 +47,7 @@ test.describe('Banco: visitante sem login', () => {
     expect((await rpc(request, 'start_conversation', { p_item: UUID })).ok()).toBe(false);
     expect((await rpc(request, 'my_conversations')).ok()).toBe(false);
     expect((await rpc(request, 'chat_unread_count')).ok()).toBe(false);
+    expect((await rpc(request, 'hide_conversation', { p_conv: UUID })).ok()).toBe(false);
   });
 
   test('não dispara notificação do chat nem lê aparelhos sem a senha', async ({ request }) => {

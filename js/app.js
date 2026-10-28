@@ -116,14 +116,26 @@ function parsePrice(s) {
 
 let toastTimer;
 // Com "err", a falha também vai para o monitoramento (erros de digitação do usuário não passam err).
-function toast(msg, kind = '', err = null) {
+// action (opcional): { label, run } vira um botão no aviso, como "Desfazer".
+function toast(msg, kind = '', err = null, action = null) {
   if (err && !isNetworkError(err)) reportError(err, (location.hash.split('?')[0] || '#/').replace(/[0-9a-f-]{36}/g, ':id'));
   const el = document.getElementById('toast');
   el.textContent = msg;
+  if (action) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = action.label;
+    btn.onclick = () => {
+      el.hidden = true;
+      action.run();
+    };
+    el.append(' ', btn);
+  }
   el.className = `toast ${kind}`;
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), kind === 'error' ? 9000 : 3500);
+  toastTimer = setTimeout(() => (el.hidden = true), kind === 'error' ? 9000 : action ? 6000 : 3500);
 }
 // Regra do banco (limite, data, denúncia repetida): só mostra a mensagem, não é falha do app.
 const RULE_ERROR = 'DS400';
@@ -163,6 +175,7 @@ const icon = {
   chevron: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
   target: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></svg>',
   palette: '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c1.2 0 1.8-.9 1.4-2l-.4-1a1.5 1.5 0 0 1 1.4-2H17a4 4 0 0 0 4-4c0-5-4-9-9-9z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="14.5" cy="7" r="1"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
   bell: '<svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>',
   pix: '<svg viewBox="0 0 24 24"><path d="M12 3.5 20.5 12 12 20.5 3.5 12z"/><path d="M8 12h8"/></svg>',
   whatsapp: '<svg viewBox="0 0 24 24"><path d="M4 20l1.2-3.8A8 8 0 1 1 8 19z"/><path d="M9 9.5c.5 2.5 2.5 4.5 5 5l1.2-1.2 2 1-.4 1.6c-4.4.4-9-4.2-8.6-8.6L9.8 7l1 2z"/></svg>',
@@ -2621,16 +2634,88 @@ async function viewChats(ctx) {
       </div>`;
     return;
   }
-  list.innerHTML = data.map((c) => `
-    <a class="chat-row ${c.unread ? 'unread' : ''}" href="#/chat/${c.id}">
-      <span class="chat-thumb">${thumb(c.item_photo)}</span>
-      <span class="chat-text">
-        <strong>${esc(c.item_title)}</strong>
-        <small>${c.i_am_seller ? 'Você vende para' : 'Vendido por'} ${esc(c.other_name)}</small>
-        <span class="chat-last">${c.last_mine ? 'Você: ' : ''}${esc(c.last_message || '')}</span>
-      </span>
-      <time datetime="${esc(c.last_message_at)}">${timeAgo(c.last_message_at)}</time>
-    </a>`).join('');
+  list.innerHTML = `<p class="hint chat-swipe-hint">Arraste uma conversa para a esquerda para apagar.</p>` + data.map((c) => `
+    <div class="chat-swipe" data-id="${c.id}">
+      <span class="chat-swipe-bg" aria-hidden="true">${icon.trash}Apagar</span>
+      <a class="chat-row ${c.unread ? 'unread' : ''}" href="#/chat/${c.id}" draggable="false">
+        <span class="chat-thumb">${thumb(c.item_photo)}</span>
+        <span class="chat-text">
+          <strong>${esc(c.item_title)}</strong>
+          <small>${c.i_am_seller ? 'Você vende para' : 'Vendido por'} ${esc(c.other_name)}</small>
+          <span class="chat-last">${c.last_mine ? 'Você: ' : ''}${esc(c.last_message || '')}</span>
+        </span>
+        <time datetime="${esc(c.last_message_at)}">${timeAgo(c.last_message_at)}</time>
+      </a>
+    </div>`).join('');
+  swipeToDelete(list, async (wrap) => {
+    const id = wrap.dataset.id;
+    const { error } = await sb.rpc('hide_conversation', { p_conv: id });
+    if (error) return toast('Não foi possível apagar a conversa.', 'error', error), false;
+    refreshUnread(true);
+    if (!list.querySelector('.chat-swipe:not([hidden]):not(.removing)')) render(); // apagou a última: mostra o aviso de vazio
+    toast('Conversa apagada.', '', null, {
+      label: 'Desfazer',
+      run: async () => {
+        const { error: undo } = await sb.rpc('hide_conversation', { p_conv: id, p_hide: false });
+        if (undo) return toast('Não foi possível desfazer.', 'error', undo);
+        if (location.hash === '#/chat') render();
+      },
+    });
+    return true;
+  });
+}
+
+// Arrastar a conversa para a esquerda: passando de 35% da largura, onDelete(wrap) apaga
+// (devolve true; com false a conversa volta ao lugar). Rolagem vertical continua normal.
+function swipeToDelete(list, onDelete) {
+  let row = null;
+  let startX = 0;
+  let startY = 0;
+  let dx = 0;
+  let dragging = false;
+  list.addEventListener('pointerdown', (e) => {
+    row = e.button === 0 ? e.target.closest('.chat-row') : null;
+    startX = e.clientX;
+    startY = e.clientY;
+    dx = 0;
+    dragging = false;
+  });
+  list.addEventListener('pointermove', (e) => {
+    if (!row) return;
+    const x = e.clientX - startX;
+    const y = e.clientY - startY;
+    if (!dragging) {
+      if (Math.abs(y) > 10 && Math.abs(y) > Math.abs(x)) return void (row = null); // está rolando a lista
+      if (x > -10) return;
+      dragging = true;
+      row.setPointerCapture(e.pointerId);
+      row.classList.add('dragging');
+    }
+    dx = Math.min(0, x);
+    row.style.transform = `translateX(${dx}px)`;
+  });
+  const end = async () => {
+    if (!row) return;
+    const r = row;
+    row = null;
+    r.classList.remove('dragging');
+    if (!dragging) return;
+    setTimeout(() => (dragging = false)); // depois do clique que o soltar dispara
+    if (-dx < r.offsetWidth * 0.35) return void (r.style.transform = '');
+    const wrap = r.closest('.chat-swipe');
+    r.style.transform = 'translateX(-100%)';
+    wrap.classList.add('removing');
+    if (await onDelete(wrap)) {
+      wrap.hidden = true;
+    } else {
+      wrap.classList.remove('removing');
+      r.style.transform = '';
+    }
+  };
+  list.addEventListener('pointerup', end);
+  list.addEventListener('pointercancel', end);
+  // Soltar depois de arrastar não abre a conversa.
+  list.addEventListener('click', (e) => dragging && e.preventDefault(), true);
 }
 
 async function viewConversation(ctx, id) {
