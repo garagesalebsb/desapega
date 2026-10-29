@@ -380,7 +380,7 @@ async function render() {
   for (const [re, view] of routes) {
     const m = path.match(re);
     if (!m) continue;
-    window.scrollTo(0, 0);
+    $view.scrollTo(0, 0);
     try {
       await view(ctx, ...m.slice(1));
     } catch (e) {
@@ -2784,7 +2784,7 @@ async function viewConversation(ctx, id) {
             <p>${esc(m.body).replace(/\n/g, '<br>')}</p><time>${m.pending ? 'enviando…' : clock(m.created_at)}</time></div>`;
         }).join('')
       : `<p class="hint chat-empty">${c.i_am_seller ? 'Nenhuma mensagem ainda.' : 'Mande uma mensagem para o vendedor sobre este item.'}</p>`;
-    window.scrollTo(0, document.body.scrollHeight);
+    $view.scrollTo(0, $view.scrollHeight);
   };
   paint();
   sb.rpc('mark_conversation_read', { p_conv: id }).then(() => refreshUnread(true));
@@ -3302,11 +3302,28 @@ async function viewProfile(ctx) {
   };
 }
 
+// O app fica preso à tela (ver body no CSS). O Android encolhe a tela sozinho quando o teclado
+// abre (interactive-widget no index.html); o iPhone não, então aqui, só com o teclado aberto,
+// o app passa a ter a altura que sobrou acima dele. Só ajusta o tamanho, não força rolagem.
+function fitViewport() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const fit = () => {
+    const keyboard = vv.scale < 1.05 && window.innerHeight - vv.height > 120; // zoom com dois dedos não conta
+    document.documentElement.classList.toggle('teclado', keyboard);
+    if (keyboard) document.documentElement.style.setProperty('--app-h', `${Math.round(vv.height)}px`);
+    else document.documentElement.style.removeProperty('--app-h');
+  };
+  vv.addEventListener('resize', fit);
+  fit();
+}
+
 // ---------------------------------------------------------------------
 // Inicialização
 // ---------------------------------------------------------------------
 async function boot() {
   initMonitoring(CONFIG.SENTRY_DSN);
+  fitViewport();
   document.getElementById('app-name').textContent = CONFIG.APP_NAME;
   if (!configured) {
     $view.innerHTML = `
