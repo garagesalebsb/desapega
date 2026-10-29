@@ -2758,15 +2758,21 @@ async function viewConversation(ctx, id) {
         <div class="status-toggle chat-status" role="group" aria-label="Situação do item">
           ${Object.entries(STATUS_LABEL).map(([k, v]) => `<button data-status="${k}" class="${c.item_status === k ? 'on' : ''}">${v}</button>`).join('')}
         </div>` : ''}
-      <p class="hint chat-safety">Combine a retirada em lugar movimentado e só pague depois de ver o item. Nunca passe senhas ou códigos recebidos por SMS.</p>
-      <div class="chat-msgs" id="chat-msgs" aria-live="polite"></div>
+      <div class="chat-scroll" id="chat-scroll">
+        <p class="hint chat-safety">Combine a retirada em lugar movimentado e só pague depois de ver o item. Nunca passe senhas ou códigos recebidos por SMS.</p>
+        <div class="chat-msgs" id="chat-msgs" aria-live="polite"></div>
+      </div>
       <form class="chat-input" id="chat-form">
         <textarea name="body" rows="1" maxlength="2000" placeholder="Escreva uma mensagem" aria-label="Mensagem" required>${esc(draft)}</textarea>
         <button class="btn primary" aria-label="Enviar">${icon.send}</button>
       </form>
     </div>`;
 
+  // Cabeçalho do anúncio em cima e campo de envio embaixo ficam parados; só as mensagens rolam.
+  document.body.classList.add('chat-mode');
+  cleanup.push(() => document.body.classList.remove('chat-mode'));
   const box = document.getElementById('chat-msgs');
+  const scroller = document.getElementById('chat-scroll');
   const dayLabel = (iso) => {
     const d = isoDate(new Date(iso));
     if (d === today()) return 'Hoje';
@@ -2784,7 +2790,7 @@ async function viewConversation(ctx, id) {
             <p>${esc(m.body).replace(/\n/g, '<br>')}</p><time>${m.pending ? 'enviando…' : clock(m.created_at)}</time></div>`;
         }).join('')
       : `<p class="hint chat-empty">${c.i_am_seller ? 'Nenhuma mensagem ainda.' : 'Mande uma mensagem para o vendedor sobre este item.'}</p>`;
-    $view.scrollTo(0, $view.scrollHeight);
+    scroller.scrollTo(0, scroller.scrollHeight);
   };
   paint();
   sb.rpc('mark_conversation_read', { p_conv: id }).then(() => refreshUnread(true));
@@ -2830,8 +2836,10 @@ async function viewConversation(ctx, id) {
   const form = document.getElementById('chat-form');
   const input = form.body;
   const grow = () => {
+    const atEnd = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+    if (atEnd) scroller.scrollTo(0, scroller.scrollHeight); // o campo crescendo não esconde a última mensagem
   };
   input.addEventListener('input', grow);
   grow();

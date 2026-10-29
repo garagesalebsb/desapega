@@ -108,7 +108,6 @@ body:not(.doc-page) > .view {
 /* Teclado aberto no iPhone: a barra de baixo fica escondida atrás dele. */
 .teclado .tabbar { display: none; }
 .teclado body:not(.doc-page) > .view { padding-bottom: 32px; }
-.teclado .chat-input { bottom: 0; }
 
 .tabbar {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000;
@@ -543,9 +542,21 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 .chat-row.unread .chat-last { color: var(--ink); font-weight: 600; }
 
 .chat-head {
-  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 6px;
+  flex: none; display: flex; align-items: center; gap: 6px;
   margin: -12px -16px 8px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--line);
 }
+/* Conversa aberta: a tela não rola. O cabeçalho do anúncio fica no topo, o campo de envio
+   fica no rodapé (logo acima da barra de baixo) e só as mensagens rolam entre os dois. */
+body.chat-mode > .view {
+  display: flex; flex-direction: column; overflow: hidden;
+  padding-top: 0; padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+}
+.teclado body.chat-mode > .view { padding-bottom: 0; }
+.chat-mode .chat-view { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
+.chat-mode .chat-head { margin-top: 0; }
+.chat-mode .chat-status { flex: none; }
+.chat-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.chat-mode .chat-msgs { min-height: 0; }
 .chat-back { display: grid; place-items: center; width: 36px; height: 36px; color: var(--ink); transform: scaleX(-1); }
 .chat-back svg { width: 22px; height: 22px; }
 .chat-item { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
@@ -561,8 +572,7 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 .msg p { margin: 0; overflow-wrap: anywhere; white-space: normal; }
 .msg time { display: block; text-align: right; font-size: .7rem; opacity: .75; margin-top: 2px; }
 .chat-input {
-  position: sticky; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); z-index: 5;
-  display: flex; align-items: flex-end; gap: 8px; margin: 0 -16px; padding: 8px 12px; background: var(--bg); border-top: 1px solid var(--line);
+  flex: none; display: flex; align-items: flex-end; gap: 8px; margin: 0 -16px; padding: 8px 12px; background: var(--bg); border-top: 1px solid var(--line);
 }
 .chat-input textarea { flex: 1; resize: none; min-height: 44px; max-height: 140px; border-radius: 22px; padding: 10px 14px; }
 .chat-input .btn { width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 50%; flex: none; }
