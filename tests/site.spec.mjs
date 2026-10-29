@@ -2,7 +2,8 @@ import { test as base, expect } from '@playwright/test';
 import { firstSale } from './helpers.mjs';
 
 // Toda página testada também falha se aparecer erro de JavaScript no console.
-const IGNORE = /Failed to load resource|tile\.openstreetmap|favicon/i;
+// "interactive-widget" (teclado no Android) só gera um aviso inofensivo no Safari, que o ignora.
+const IGNORE = /Failed to load resource|tile\.openstreetmap|favicon|interactive-widget/i;
 const test = base.extend({
   page: async ({ page }, use) => {
     const errors = [];
