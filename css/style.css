@@ -60,6 +60,10 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; }
+/* Sem "puxar para atualizar" nem o efeito elástico no topo/fim da página. */
+html, body {
+  overscroll-behavior: none;
+}
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
@@ -84,6 +88,27 @@ code { background: var(--brand-soft); padding: 1px 5px; border-radius: 4px; }
 .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--ink); font-weight: 700; font-size: 1.05rem; }
 .account-link { text-decoration: none; font-weight: 600; padding: 6px 12px; border-radius: 99px; background: var(--brand-soft); }
 .view { max-width: 1100px; margin: 0 auto; padding: 12px 16px 32px; }
+
+/* App "pregado" na tela: a página em si não rola, só o conteúdo (#view) rola.
+   Sem página rolando, o navegador não tem o que "puxar para atualizar".
+   --app-h é ajustado pelo fitViewport (app.js) quando o teclado do iPhone abre. */
+body:not(.doc-page) {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 100%; height: var(--app-h, 100dvh);
+  overflow: hidden; padding-bottom: 0;
+  display: flex; flex-direction: column;
+}
+body:not(.doc-page) > .topbar { flex: none; }
+body:not(.doc-page) > .view {
+  flex: 1; min-height: 0; width: 100%; max-width: none; margin: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  /* mesma coluna central de 1100px de antes, mas rolando com o dedo em qualquer ponto da tela */
+  padding: 12px max(16px, calc((100% - 1068px) / 2)) calc(32px + var(--tabbar-h) + env(safe-area-inset-bottom));
+}
+/* Teclado aberto no iPhone: a barra de baixo fica escondida atrás dele. */
+.teclado .tabbar { display: none; }
+.teclado body:not(.doc-page) > .view { padding-bottom: 32px; }
+.teclado .chat-input { bottom: 0; }
 
 .tabbar {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000;
@@ -150,7 +175,7 @@ code { background: var(--brand-soft); padding: 1px 5px; border-radius: 4px; }
 .map.small { height: 200px; margin: 14px 0; }
 @media (min-width: 860px) {
   .home-grid { grid-template-columns: 1fr 1fr; align-items: start; }
-  .home-grid .map { position: sticky; top: 72px; height: calc(100vh - 160px); }
+  .home-grid .map { position: sticky; top: 12px; height: calc(100vh - 160px); }
 }
 
 .section-title { margin: 20px 0 6px; }
@@ -393,6 +418,8 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
   html, body { background: #fff !important; padding: 0 !important; }
   .poster-mode .topbar, .poster-mode .tabbar, .no-print, .toast, .install-banner, .modal-backdrop { display: none !important; }
   .poster-mode .view { padding: 0; max-width: none; }
+  body:not(.doc-page) { position: static; height: auto; overflow: visible; display: block; }
+  body.poster-mode > .view { overflow: visible; padding: 0; }
   .poster { max-width: none; width: 210mm; height: 297mm; aspect-ratio: auto; box-shadow: none; border-radius: 0; font-size: 16px; }
 }
 
@@ -516,7 +543,7 @@ label.check input { width: auto; min-height: 0; accent-color: var(--brand); }
 .chat-row.unread .chat-last { color: var(--ink); font-weight: 600; }
 
 .chat-head {
-  position: sticky; top: calc(57px + env(safe-area-inset-top)); z-index: 5; display: flex; align-items: center; gap: 6px;
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 6px;
   margin: -12px -16px 8px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .chat-back { display: grid; place-items: center; width: 36px; height: 36px; color: var(--ink); transform: scaleX(-1); }
