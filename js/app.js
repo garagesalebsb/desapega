@@ -197,7 +197,7 @@ const DF_BOUNDS = [[-16.4, -48.65], [-15.2, -47.05]];
 // recenter: o que o botão de centralizar faz (padrão: volta para a vista inicial).
 function makeMap(el, center, zoom, { recenter, ...opts } = {}) {
   const map = L.map(el, { scrollWheelZoom: false, maxBounds: DF_BOUNDS, maxBoundsViscosity: 0.9, minZoom: 9, ...opts }).setView(center, zoom);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap',
   }).addTo(map);
@@ -420,8 +420,8 @@ function saleCard(s) {
   const dist = myPosition() ? formatDistance(distanceKm(myPosition(), s)) : '';
   return `
     <a class="sale-card ${s.type === 'mudanca' ? 'highlight' : ''}" href="#/venda/${s.id}">
-      <div class="thumb type-bg-${s.type}" ${s.cover_url ? `style="background-image:url('${esc(thumbUrl(s.cover_url))}')"` : ''}>
-        ${s.cover_url ? '' : icon.tag}
+      <div class="thumb type-bg-${s.type}">
+        ${s.cover_url ? `<img src="${esc(thumbUrl(s.cover_url))}" alt="" loading="lazy" decoding="async">` : icon.tag}
         ${fav ? `<span class="fav-dot" title="Favorita">${icon.heart}</span>` : ''}
       </div>
       <div class="body">
@@ -1486,7 +1486,7 @@ function openItemViewer(sale, item, { isOwner, ended, hasPix, chatOn = true, pho
   const canBuy = !isOwner && item.status === 'disponivel' && !ended;
   const { el, close } = openModal(`
     ${photos.length ? `
-      <div class="gallery">${photos.map((u) => `<img src="${esc(u)}" alt="">`).join('')}</div>
+      <div class="gallery">${photos.map((u, i) => `<img src="${esc(u)}" alt="" decoding="async"${i ? ' loading="lazy"' : ''}>`).join('')}</div>
       ${photos.length > 1 ? `<div class="dots">${photos.map((_, i) => `<span class="${i === 0 ? 'on' : ''}"></span>`).join('')}</div>` : ''}` : ''}
     ${photosOnly
       ? `<p class="meta">${item.status !== 'disponivel' ? `<strong>${STATUS_LABEL[item.status]}</strong> · ` : ''}${chatOn ? 'Pergunte o preço no chat ou veja no local.' : 'Veja o preço no local.'}</p>`

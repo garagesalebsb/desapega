@@ -16,6 +16,21 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Desapega">
+  <!-- Abre as conexões cedo e baixa os módulos em paralelo (sem esperar o app.js pedir um por um). -->
+  <link rel="preconnect" href="https://jadxgfwguzcbmuvjutvq.supabase.co" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm">
+  <link rel="modulepreload" href="js/app.js">
+  <link rel="modulepreload" href="js/config.js">
+  <link rel="modulepreload" href="js/data.js">
+  <link rel="modulepreload" href="js/install.js">
+  <link rel="modulepreload" href="js/metadata.js">
+  <link rel="modulepreload" href="js/monitoring.js">
+  <link rel="modulepreload" href="js/when.js">
+  <link rel="modulepreload" href="js/pix.js">
+  <link rel="modulepreload" href="js/reminders.js">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="css/style.css">
   <script>
