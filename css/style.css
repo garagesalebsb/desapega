@@ -64,6 +64,12 @@ html, body { margin: 0; }
 html, body {
   overscroll-behavior: none;
 }
+/* Sem zoom: toque duplo não aumenta a tela (e o toque responde sem atraso) */
+html, body {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;   /* iPhone deitado não aumenta a letra sozinho */
+  text-size-adjust: 100%;
+}
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: var(--bg);
@@ -269,6 +275,7 @@ label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-
 input, select, textarea {
   font: inherit; font-weight: 400; color: var(--ink); background: var(--surface);
   border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 44px; width: 100%;
+  font-size: max(16px, 1em); /* iPhone dá zoom em qualquer campo com letra menor que 16px */
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); outline-offset: 0; border-color: transparent; }
 .row { display: flex; gap: 10px; }
@@ -308,7 +315,10 @@ legend { font-weight: 600; font-size: .92rem; margin-bottom: 6px; }
 
 .modal { max-height: calc(100vh - 32px); overflow-y: auto; }
 .viewer .gallery { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; border-radius: 12px; background: var(--line); margin: -4px -4px 0; }
-.viewer .gallery img { flex: 0 0 100%; width: 100%; max-height: 60vh; object-fit: contain; scroll-snap-align: center; }
+.viewer .gallery img { flex: 0 0 100%; width: 100%; max-height: 60vh; object-fit: contain; scroll-snap-align: center; transform-origin: center; will-change: transform; -webkit-user-drag: none; user-select: none; }
+/* Foto ampliada: o dedo arrasta a foto, não a galeria */
+.viewer .gallery.zoomed { overflow: hidden; touch-action: none; }
+.viewer .gallery.zoomed img { cursor: grab; }
 .viewer .dots { display: flex; justify-content: center; gap: 6px; }
 .viewer .dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
 .viewer .dots span.on { background: var(--brand); }

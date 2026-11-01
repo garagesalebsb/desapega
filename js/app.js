@@ -8,6 +8,25 @@ import { saleStatus, distanceKm, formatDistance, googleCalendarUrl, icsFor } fro
 import { PIX_TYPES, guessPixType, normalizePixKey, formatPixKey, pixPayload, qrSvg, qrImage } from './pix.js';
 import { pushSupport, remindersActive, enableReminders, disableReminders, syncReminders } from './reminders.js';
 
+// ===== Sem zoom =====
+// A tela não amplia (pinça nem toque duplo). Áreas com zoom próprio (fotos do item, mapas)
+// levam a classe .pode-zoom ou são do Leaflet e cuidam do gesto sozinhas.
+function podeZoom(alvo) {
+  return alvo && alvo.closest && alvo.closest('.pode-zoom, .leaflet-container');
+}
+
+// iPhone ignora user-scalable=no: barra a pinça pelos eventos do Safari...
+['gesturestart', 'gesturechange', 'gestureend'].forEach((tipo) => {
+  document.addEventListener(tipo, (e) => {
+    if (!podeZoom(e.target)) e.preventDefault();
+  }, { passive: false });
+});
+
+// ...e pelo movimento com dois ou mais dedos (um dedo continua rolando e arrastando normalmente)
+document.addEventListener('touchmove', (e) => {
+  if (e.touches.length > 1 && !podeZoom(e.target)) e.preventDefault();
+}, { passive: false });
+
 const $view = document.getElementById('view');
 const configured = !CONFIG.SUPABASE_URL.includes('SEU-PROJETO');
 const sb = configured
@@ -1515,10 +1534,150 @@ function openItemViewer(sale, item, { isOwner, ended, hasPix, chatOn = true, pho
       dots.forEach((d, j) => d.classList.toggle('on', i === j));
     });
   }
+  if (gallery) zoomFoto(gallery);
   el.querySelectorAll('[data-a]').forEach((b) => (b.onclick = () => {
     close();
     onAction(b.dataset.a);
   }));
+}
+
+// Zoom nas fotos do visualizador: como a página não amplia mais, o app faz o zoom.
+// Pinça amplia de 1× a 4× em volta dos dedos, toque duplo (ou clique duplo) alterna 1×/2×,
+// com a foto ampliada um dedo (ou o mouse) arrasta a foto.
+function zoomFoto(gallery) {
+  const MIN = 1, MAX = 4;
+  gallery.classList.add('pode-zoom');
+  gallery.querySelectorAll('img').forEach((im) => (im.draggable = false));
+  let img = null, s = 1, x = 0, y = 0;
+  let pinch = null, pan = null, tap = null, lastTap = null, lastTouch = 0;
+
+  // Ponto da tela em relação ao centro da foto (sem o zoom)
+  const rel = (cx, cy) => {
+    const r = gallery.getBoundingClientRect();
+    return { x: cx - (r.left + r.width / 2), y: cy - (r.top + r.height / 2) };
+  };
+  // Não deixa a foto ampliada sair da moldura
+  const limit = () => {
+    const mx = (img.clientWidth * (s - 1)) / 2, my = (img.clientHeight * (s - 1)) / 2;
+    x = Math.min(mx, Math.max(-mx, x));
+    y = Math.min(my, Math.max(-my, y));
+  };
+  const apply = (anim) => {
+    img.style.transition = anim ? 'transform .2s ease' : '';
+    img.style.transform = s > 1 ? `translate(${x}px, ${y}px) scale(${s})` : '';
+    gallery.classList.toggle('zoomed', s > 1);
+  };
+  const reset = (anim) => {
+    if (!img) return;
+    s = 1; x = 0; y = 0;
+    apply(anim);
+  };
+  // Amplia para `ns` mantendo parado o ponto p (relativo ao centro)
+  const zoomAt = (p, ns, base = { s, x, y }) => {
+    const qx = (p.x - base.x) / base.s, qy = (p.y - base.y) / base.s; // ponto da foto sob p
+    s = Math.min(MAX, Math.max(MIN * 0.8, ns));
+    x = p.x - s * qx;
+    y = p.y - s * qy;
+  };
+  const pick = (t) => {
+    const novo = t && t.closest && t.closest('img');
+    if (novo && novo !== img) { reset(false); img = novo; }
+    return img;
+  };
+  const toggle = (cx, cy) => {
+    if (s > 1) return reset(true);
+    zoomAt(rel(cx, cy), 2);
+    limit();
+    apply(true);
+  };
+  const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  const mid = (a, b) => rel((a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2);
+
+  // iPhone: a pinça aqui é nossa, não do Safari
+  ['gesturestart', 'gesturechange'].forEach((tipo) =>
+    gallery.addEventListener(tipo, (e) => e.preventDefault(), { passive: false }));
+
+  // ---- Dedos ----
+  gallery.addEventListener('touchstart', (e) => {
+    if (!pick(e.target)) return;
+    if (e.touches.length === 2) {
+      const [a, b] = e.touches;
+      pinch = { d: dist(a, b), m: mid(a, b), s, x, y };
+      pan = null; tap = null;
+    } else if (e.touches.length === 1) {
+      const t = e.touches[0];
+      tap = { x: t.clientX, y: t.clientY, at: Date.now() };
+      pan = s > 1 ? { cx: t.clientX, cy: t.clientY, x, y } : null;
+    }
+  }, { passive: true });
+
+  gallery.addEventListener('touchmove', (e) => {
+    if (pinch && e.touches.length === 2) {
+      e.preventDefault();
+      const [a, b] = e.touches;
+      const m = mid(a, b);
+      // zoom em volta do ponto inicial dos dedos + arrasto pelo meio deles
+      zoomAt(pinch.m, pinch.s * (dist(a, b) / pinch.d), pinch);
+      x += m.x - pinch.m.x;
+      y += m.y - pinch.m.y;
+      apply(false);
+    } else if (pan && e.touches.length === 1) {
+      e.preventDefault();
+      const t = e.touches[0];
+      x = pan.x + t.clientX - pan.cx;
+      y = pan.y + t.clientY - pan.cy;
+      limit();
+      apply(false);
+    }
+    if (tap && e.touches.length === 1 && Math.hypot(e.touches[0].clientX - tap.x, e.touches[0].clientY - tap.y) > 10) tap = null;
+  }, { passive: false });
+
+  gallery.addEventListener('touchend', (e) => {
+    lastTouch = Date.now();
+    if (pinch && e.touches.length < 2) {
+      pinch = null;
+      if (s < 1.05) reset(true);
+      else { limit(); apply(true); }
+      // sobrou um dedo na tela: continua arrastando a foto ampliada
+      const t = e.touches[0];
+      pan = t && s > 1 ? { cx: t.clientX, cy: t.clientY, x, y } : null;
+      return;
+    }
+    if (e.touches.length) return;
+    pan = null;
+    // Toque duplo: dois toques rápidos no mesmo lugar
+    if (tap && Date.now() - tap.at < 300) {
+      if (lastTap && Date.now() - lastTap.at < 300 && Math.hypot(tap.x - lastTap.x, tap.y - lastTap.y) < 30) {
+        lastTap = null;
+        toggle(tap.x, tap.y);
+      } else lastTap = { ...tap, at: Date.now() };
+    }
+    tap = null;
+  });
+  gallery.addEventListener('touchcancel', () => { pinch = pan = tap = null; });
+
+  // ---- Mouse (computador): clique duplo amplia, arrastar move ----
+  gallery.addEventListener('dblclick', (e) => {
+    if (Date.now() - lastTouch < 1000 || !pick(e.target)) return; // veio de toque: já tratado acima
+    toggle(e.clientX, e.clientY);
+  });
+  gallery.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || s <= 1 || !pick(e.target)) return;
+    e.preventDefault();
+    const start = { cx: e.clientX, cy: e.clientY, x, y };
+    const move = (ev) => {
+      x = start.x + ev.clientX - start.cx;
+      y = start.y + ev.clientY - start.cy;
+      limit();
+      apply(false);
+    };
+    const up = () => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+  });
 }
 
 // Mostra um arquivo escolhido numa <img>, convertendo HEIC se o navegador não abrir.

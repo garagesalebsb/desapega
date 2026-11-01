@@ -58,7 +58,7 @@ for (const s of sales) {
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>${esc(title)} — ${esc(APP_NAME)}</title>
 <meta name="description" content="${esc(desc)}">
 <meta property="og:type" content="website">
