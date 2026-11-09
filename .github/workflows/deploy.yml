@@ -1,0 +1,58 @@
+name: Publicar no GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+    - cron: '15 6 * * *'
+
+permissions: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - id: pages
+        uses: actions/configure-pages@v6
+      - run: node scripts/build-site.mjs
+        env:
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  religar:
+    if: github.event.schedule == '15 6 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - run: |
+          gh api "repos/$REPO/actions/workflows" --paginate \
+            -q '.workflows[] | select(.state == "active" or .state == "disabled_inactivity") | .id' |
+          while read -r id; do
+            gh api -X PUT "repos/$REPO/actions/workflows/$id/enable" && echo "religado: $id"
+          done

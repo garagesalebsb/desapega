@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="15 15 870 870">
+  <defs>
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="15" y1="885" x2="885" y2="15">
+      <stop offset="0" stop-color="#4f148a"/>
+      <stop offset="1" stop-color="#8a28b8"/>
+    </linearGradient>
+  </defs>
+  <rect id="fundo" x="15" y="15" width="870" height="870" rx="150" fill="url(#bg)"/>
+  <g id="caixa">
+    <g fill="#fff" stroke="#fff" stroke-width="22" stroke-linejoin="round">
+      <polygon points="178,282 350,214 422,273 248,339"/>
+      <polygon points="480,273 550,214 724,278 655,339"/>
+      <polygon points="177,436 240,388 422,463 370,509"/>
+      <polygon points="238,511 358,553 426,509 426,690 240,617"/>
+      <polygon points="478,458 670,388 670,594 478,692"/>
+    </g>
+    <g fill="url(#bg)">
+      <path d="M546 553 C564 598 571 636 559 680 L587 666 C612 628 616 584 608 528 Z"/>
+      <polygon points="578,448 647,519 518,570"/>
+    </g>
+  </g>
+</svg>
